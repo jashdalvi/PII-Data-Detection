@@ -1,8 +1,5 @@
 pip install -r requirements.txt
-if [ ! -f .env ]
-then
-  export $(cat .env | xargs)
-fi
+export $(grep -v '^#' .env | xargs)
 mkdir data/
 kaggle competitions download -c pii-detection-removal-from-educational-data -p data/
 python setup.py
