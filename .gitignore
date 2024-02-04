@@ -1,0 +1,6 @@
+output/
+multirun/
+outputs/
+wandb/
+.env
+data/*
