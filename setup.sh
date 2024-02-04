@@ -1,10 +1,12 @@
 pip install -r requirements.txt
-python setup.py
+if [ ! -f .env ]
+then
+  export $(cat .env | xargs)
+fi
+mkdir data/
 kaggle competitions download -c pii-detection-removal-from-educational-data -p data/
-cd data
-unzip pii-detection-removal-from-educational-data.zip
-rm pii-detection-removal-from-educational-data.zip
-cd ..
+python setup.py
+rm data/pii-detection-removal-from-educational-data.zip
 python -m spacy download en_core_web_sm
 git config --global user.name "jashdalvi"
 git config --global user.email "jashdalvi99@gmail.com"

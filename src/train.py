@@ -21,6 +21,9 @@ import random
 from utils import AverageMeter, compute_metrics
 import json
 from datasets import Dataset
+import warnings
+transformers.logging.set_verbosity_error()
+warnings.filterwarnings("ignore")
 
 
 # declare the two GPUs
@@ -86,16 +89,16 @@ def main(cfg: DictConfig):
         reference_df = reference_df.reset_index().rename(columns={'index': 'row_id'})
         reference_df = reference_df[['row_id', 'document', 'token', 'label']].copy()
 
-        return reference_data
+        return reference_df
 
     def generate_pred_df(preds, ds):
         id2label = {i: label for i, label in enumerate(LABELS)}
         triplets = []
         document, token, label, token_str = [], [], [], []
-        for p, token_map, offsets, tokens, doc in zip(preds, ds["token_map"], ds["offset_mapping"], ds["tokens"], ds["document"]):
+        for p, token_map, offsets, tokens, doc, length in zip(preds, ds["token_map"], ds["offset_mapping"], ds["tokens"], ds["document"], ds["length"]):
 
             for token_pred, (start_idx, end_idx) in zip(p, offsets):
-                label_pred = id2label[str(token_pred)]
+                label_pred = id2label[int(token_pred)]
 
                 if start_idx + end_idx == 0: continue
 
@@ -217,14 +220,12 @@ def main(cfg: DictConfig):
             config = AutoConfig.from_pretrained(self.model_name)
 
             config.update({
-                {
                     "output_hidden_states": True,
                     "hidden_dropout_prob": cfg.hidden_dropout_prob,
                     "attention_probs_dropout_prob" : cfg.hidden_dropout_prob,
                     "layer_norm_eps": cfg.layer_norm_eps,
                     "add_pooling_layer": False,
                     "num_labels": len(LABELS)
-                }
             })
 
             self.transformer = AutoModel.from_pretrained(self.model_name, config=config)
@@ -295,9 +296,11 @@ def main(cfg: DictConfig):
             for k, v in batch.items():
                 batch[k] = v.to(device)
             
+            labels = batch.pop("labels")
+            
             with autocast():
                 outputs = model(**batch)
-                loss = criterion(outputs, batch["labels"])
+                loss = criterion(outputs, labels)
             
             if cfg.gradient_accumulation_steps > 1:
                 loss = loss / cfg.gradient_accumulation_steps
@@ -324,6 +327,19 @@ def main(cfg: DictConfig):
         
         return losses.avg
 
+    def postprocess_labels(outputs):
+        predictions = outputs.cpu().numpy()
+        pred_softmax = np.exp(predictions) / np.sum(np.exp(predictions), axis = 2).reshape(predictions.shape[0],predictions.shape[1],1)
+        id2label = {i: label for i, label in enumerate(LABELS)}
+        preds = predictions.argmax(-1)
+        preds_without_O = pred_softmax[:,:,:12].argmax(-1)
+        O_preds = pred_softmax[:,:,12]
+
+        threshold = 0.9
+        preds_final = np.where(O_preds < threshold, preds_without_O , preds)
+        return preds_final
+
+
     @torch.inference_mode()
     def evaluate(epoch, model, valid_loader, device):
         """evaluate pass"""
@@ -335,10 +351,12 @@ def main(cfg: DictConfig):
             for k, v in batch.items():
                 batch[k] = v.to(device)
             
+            labels = batch.pop("labels")
+            
             outputs = model(**batch)
-            loss = criterion(outputs, batch["labels"])
+            loss = criterion(outputs, labels)
             losses.update(loss.item(), cfg.batch_size)
-            all_preds.extend(outputs.cpu().numpy().argmax(-1).tolist())
+            all_preds.extend(postprocess_labels(outputs).tolist())
 
         return all_preds, losses.avg
 
@@ -401,8 +419,8 @@ def main(cfg: DictConfig):
             num_proc=2,
         )
 
-        train_ds = ds.filter(lambda x: x["fold"] != fold)
-        valid_ds = ds.filter(lambda x: x["fold"] == fold)
+        train_ds = ds.filter(lambda x: x["fold"] != fold, num_proc=2)
+        valid_ds = ds.filter(lambda x: x["fold"] == fold, num_proc=2)
         valid_reference_df = generate_gt_df(valid_ds)
         collator = Collate(tokenizer)
 
@@ -422,6 +440,7 @@ def main(cfg: DictConfig):
         )
 
         model = Model()
+        model.transformer.resize_token_embeddings(len(tokenizer))
         model.to(cfg.device)
 
         if cfg.multi_gpu:
