@@ -4,3 +4,4 @@ outputs/
 wandb/
 .env
 data/*
+src/__pycache__/
