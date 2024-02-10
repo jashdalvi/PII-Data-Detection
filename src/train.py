@@ -505,7 +505,6 @@ def main(cfg: DictConfig):
             optimizer, scheduler = get_optimizer_scheduler(model, num_train_steps)
 
         scaler = GradScaler()
-        global best_models_dict
 
         for epoch in range(cfg.epochs):
             print(f"Training FOLD : {fold}, EPOCH: {epoch + 1}")
