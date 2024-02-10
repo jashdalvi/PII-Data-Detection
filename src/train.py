@@ -90,12 +90,26 @@ def main(cfg: DictConfig):
         reference_df = reference_df[['row_id', 'document', 'token', 'label']].copy()
 
         return reference_df
+    
+    def build_flatten_ds(ds):
+        features = list(ds.features.keys())
+        dataset_dict = {feature: [] for feature in features}
+
+        for example in tqdm(ds, total=len(ds)):
+            #Also make sure everything is a list
+            for feature in features:
+                assert isinstance(example[feature], list), f"Feature {feature} is not a list"
+            for feature in features:
+                dataset_dict[feature].extend(example[feature])
+
+        return Dataset.from_dict(dataset_dict)
+
 
     def generate_pred_df(preds, ds):
         id2label = {i: label for i, label in enumerate(LABELS)}
         triplets = []
         document, token, label, token_str = [], [], [], []
-        for p, token_map, offsets, tokens, doc, length in zip(preds, ds["token_map"], ds["offset_mapping"], ds["tokens"], ds["document"], ds["length"]):
+        for p, token_map, offsets, tokens, doc in zip(preds, ds["token_map"], ds["offset_mapping"], ds["tokens"], ds["document"]):
 
             for token_pred, (start_idx, end_idx) in zip(p, offsets):
                 label_pred = id2label[int(token_pred)]
@@ -131,6 +145,7 @@ def main(cfg: DictConfig):
             "label": label,
             "token_str": token_str
         })
+        df = df.drop_duplicates().reset_index(drop=True)
 
         df["row_id"] = list(range(len(df)))
 
@@ -150,9 +165,9 @@ def main(cfg: DictConfig):
             output["labels"] = [sample["labels"] for sample in batch]
 
 
-            output["input_ids"] = torch.tensor([i + [self.tokenizer.pad_token_id] * (batch_len - len(i)) for i in output["input_ids"]])
-            output["attention_mask"] = torch.tensor([i + [0] * (batch_len - len(i)) for i in output["attention_mask"]])
-            output["labels"] = torch.tensor([i + [-100] * (batch_len - len(i)) for i in output["labels"]])
+            output["input_ids"] = torch.tensor([input_ids + [self.tokenizer.pad_token_id] * (batch_len - len(input_ids)) for input_ids in output["input_ids"]])
+            output["attention_mask"] = torch.tensor([attention_mask + [0] * (batch_len - len(attention_mask)) for attention_mask in output["attention_mask"]])
+            output["labels"] = torch.tensor([labels + [-100] * (batch_len - len(labels)) for labels in output["labels"]])
 
             output["input_ids"] = torch.tensor(output["input_ids"], dtype=torch.long)
             output["attention_mask"] = torch.tensor(output["attention_mask"], dtype=torch.long)
@@ -178,38 +193,48 @@ def main(cfg: DictConfig):
                 token_map.append(-1)
 
             token_map_idx += 1
-    
-    
-        tokenized = tokenizer("".join(text), return_offsets_mapping=True, truncation = True, max_length=max_length)
+
+
+        tokenized = tokenizer("".join(text), return_offsets_mapping=True, truncation = True, max_length=max_length, return_overflowing_tokens=True, stride = 0)
         
         labels = np.array(labels)
         
         text = "".join(text)
         token_labels = []
-        
-        for start_idx, end_idx in tokenized.offset_mapping:
-            
-            # CLS token
-            if start_idx == 0 and end_idx == 0: 
-                token_labels.append(label2id["O"])
-                continue
-            
-            # case when token starts with whitespace
-            if text[start_idx].isspace():
-                start_idx += 1
-            
-            while start_idx >= len(labels):
-                start_idx -= 1
+        num_sequences = len(tokenized["input_ids"])
+        for sequence_idx in range(num_sequences):
+            offset_mapping_sequence = tokenized["offset_mapping"][sequence_idx]
+            token_labels_sequence = []
+            for start_idx, end_idx in offset_mapping_sequence:
                 
-            token_labels.append(label2id[labels[start_idx]])
+                # CLS token
+                if start_idx == 0 and end_idx == 0: 
+                    token_labels_sequence.append(label2id["O"])
+                    continue
+                
+                # case when token starts with whitespace
+                if text[start_idx].isspace():
+                    start_idx += 1
+                
+                while start_idx >= len(labels):
+                    start_idx -= 1
+                    
+                token_labels_sequence.append(label2id[labels[start_idx]])
             
-        length = len(tokenized.input_ids)
+            token_labels.append(token_labels_sequence)
+        #preds, ds["token_map"], ds["offset_mapping"], ds["tokens"], ds["document"]
+        token_map = [token_map for _ in range(num_sequences)]
+        document = [example["document"] for _ in range(num_sequences)]
+        fold = [example["fold"] for _ in range(num_sequences)]
+        tokens = [example["tokens"] for _ in range(num_sequences)]
             
         return {
             **tokenized,
             "labels": token_labels,
-            "length": length,
-            "token_map": token_map
+            "token_map": token_map,
+            "document": document,
+            "fold": fold,
+            "tokens": tokens
         }
 
     class Model(nn.Module):
@@ -335,7 +360,7 @@ def main(cfg: DictConfig):
         preds_without_O = pred_softmax[:,:,:12].argmax(-1)
         O_preds = pred_softmax[:,:,12]
 
-        threshold = 0.9
+        threshold = 0.6
         preds_final = np.where(O_preds < threshold, preds_without_O , preds)
         return preds_final
 
@@ -403,6 +428,8 @@ def main(cfg: DictConfig):
             "fold": [x["document"] % 4 for x in data]
         })
 
+        valid_reference_df = generate_gt_df(ds.filter(lambda x: x["fold"] == fold, num_proc=4))
+
         label2id = {label: i for i, label in enumerate(LABELS)}
         id2label = {i: label for i, label in enumerate(LABELS)}
 
@@ -416,12 +443,13 @@ def main(cfg: DictConfig):
         ds = ds.map(
             tokenize, 
             fn_kwargs={"tokenizer": tokenizer, "label2id": label2id, "max_length": cfg.max_length}, 
-            num_proc=2,
-        )
+            num_proc=4,
+        ).remove_columns(["full_text", "trailing_whitespace", "provided_labels"])
 
-        train_ds = ds.filter(lambda x: x["fold"] != fold, num_proc=2)
-        valid_ds = ds.filter(lambda x: x["fold"] == fold, num_proc=2)
-        valid_reference_df = generate_gt_df(valid_ds)
+        ds = build_flatten_ds(ds)
+
+        train_ds = ds.filter(lambda x: x["fold"] != fold, num_proc=4)
+        valid_ds = ds.filter(lambda x: x["fold"] == fold, num_proc=4)
         collator = Collate(tokenizer)
 
         train_loader = torch.utils.data.DataLoader(
@@ -471,7 +499,7 @@ def main(cfg: DictConfig):
                         "valid/step": epoch})
 
     
-    for fold in range(4):
+    for fold in range(1):
         main_fold(fold)
 
 
