@@ -6,6 +6,12 @@ zf = zipfile.ZipFile(zipFileName)
 zf.extractall(path=zipPath)
 zf.close()
 
+zipFileName = "/root/PII-Data-Detection/data/pii-dd-mistral-generated.zip"
+zipPath = "/root/PII-Data-Detection/data/"
+zf = zipfile.ZipFile(zipFileName)
+zf.extractall(path=zipPath)
+zf.close()
+
 import nltk
 import os
 from dotenv import load_dotenv

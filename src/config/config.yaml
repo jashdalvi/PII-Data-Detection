@@ -27,3 +27,4 @@ freeze: False
 start_freeze_layer: 0
 end_freeze_layer: 6
 llrd: 1
+use_external_data: False

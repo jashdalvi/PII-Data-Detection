@@ -20,8 +20,11 @@ from tqdm import tqdm
 import random
 from utils import AverageMeter, compute_metrics
 import json
-from datasets import Dataset
+from datasets import Dataset, concatenate_datasets
 import warnings
+from huggingface_hub import HfApi, Repository, RepositoryConfig, login, create_repo
+import subprocess
+import shutil
 transformers.logging.set_verbosity_error()
 warnings.filterwarnings("ignore")
 
@@ -34,9 +37,6 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 # Initialize hydra
 hydra.core.global_hydra.GlobalHydra.instance().clear()
-
-# Dict for best models
-best_models_dict = dict()
 
 #Add labels as global variable
 LABELS = ['B-EMAIL',
@@ -403,6 +403,7 @@ def main(cfg: DictConfig):
     
     def main_fold(fold):
         """Main loop"""
+        best_score = 0
         # Seed everything
         seed_everything(seed=cfg.seed)
         if cfg.use_wandb:
@@ -419,6 +420,8 @@ def main(cfg: DictConfig):
         with open("../data/train.json") as f:
             data = json.load(f)
 
+        
+
         ds = Dataset.from_dict({
             "full_text": [x["full_text"] for x in data],
             "document": [x["document"] for x in data],
@@ -427,6 +430,26 @@ def main(cfg: DictConfig):
             "provided_labels": [x["labels"] for x in data],
             "fold": [x["document"] % 4 for x in data]
         })
+
+        if cfg.use_external_data:
+            with open("../data/mixtral-8x7b-v1.json.json") as f:
+                external_data = json.load(f)
+
+            external_ds = Dataset.from_dict(
+                {
+                    "full_text": [x["full_text"] for x in external_data],
+                    "document": [x["document"] for x in external_data],
+                    "tokens": [x["tokens"] for x in external_data],
+                    "trailing_whitespace": [x["trailing_whitespace"] for x in external_data],
+                    "provided_labels": [x["labels"] for x in external_data],
+                    "fold": [fold + 1 for _ in external_data]
+                }
+            )
+
+            ## Check that the features are the same and then concatenate
+            assert ds.features.type == external_ds.features.type
+            ds = concatenate_datasets([ds, external_ds])
+
 
         valid_reference_df = generate_gt_df(ds.filter(lambda x: x["fold"] == fold, num_proc=4))
 
@@ -498,9 +521,61 @@ def main(cfg: DictConfig):
                         "valid/f5": eval_dict['ents_f5'],
                         "valid/step": epoch})
 
-    
-    for fold in range(1):
-        main_fold(fold)
+            if eval_dict['ents_f5'] > best_score:
+                best_score = eval_dict['ents_f5']
+                torch.save(model.state_dict(), os.path.join(cfg.output_dir, f"{cfg.model_name.split(os.path.sep)[-1]}_fold{fold}_seed{cfg.seed}.bin"))
+        
+        
+        if cfg.use_wandb:
+            run.finish()
+        
+        torch.cuda.empty_cache()
+
+        return best_score
+
+    fold_scores = []
+    for fold in range(4):
+        fold_score = main_fold(fold)
+        fold_scores.append(fold_score)
+
+    cv = np.mean(fold_scores)
+    print(f"CV SCORE: {cv:.4f}")
+
+    login(os.environ.get("HF_HUB_TOKEN"))
+
+    api = HfApi()
+    cfg.repo_id = f"jashdalvi/pii-data-detection-{cfg.model_name.split(os.path.sep)[-1]}-cv-{cv:.4f}"
+    # Creating a model repository in baseplate
+    create_repo(cfg.repo_id, private= True, exist_ok=True)
+    # Pushing the model to the hub
+    api.upload_folder(
+        folder_path = cfg.output_dir,
+        path_in_repo = "/",
+        repo_id = cfg.repo_id,
+        repo_type = "model"
+    )
+
+    # Commenting out the kaggle api dataset upload code
+    subprocess.run(["kaggle", "datasets", "init", "-p", cfg.output_dir], check=True)
+    kaggle_dataset_metadata = {
+        "title": f"pii-data-detection-{cfg.model_name.split(os.path.sep)[-1]}-cv-{cv:.4f}",
+        "id": f"jashdalvi99/pii-data-detection-{cfg.model_name.split(os.path.sep)[-1]}-cv-{cv:.4f}".replace(".", ""),
+        "licenses": [
+            {
+            "name": "CC0-1.0"
+            }
+        ]
+    }
+    # Overwriting the dataset metadata file
+    with open(os.path.join(cfg.output_dir, "dataset-metadata.json"), "w") as f:
+        json.dump(kaggle_dataset_metadata, f)
+    # Uploading the dataset to kaggle
+    subprocess.run(["kaggle", "datasets", "create", "-p", cfg.output_dir], check=True)
+
+    # Deleting the output directory to save some space
+    shutil.rmtree(cfg.output_dir)
+    # Remove the local wandb dir to save some space
+    shutil.rmtree("wandb")
 
 
 if __name__ == "__main__":
