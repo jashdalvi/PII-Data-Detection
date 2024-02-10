@@ -432,13 +432,13 @@ def main(cfg: DictConfig):
         })
 
         if cfg.use_external_data:
-            with open("../data/mixtral-8x7b-v1.json.json") as f:
+            with open("../data/mixtral-8x7b-v1.json") as f:
                 external_data = json.load(f)
 
             external_ds = Dataset.from_dict(
                 {
                     "full_text": [x["full_text"] for x in external_data],
-                    "document": [x["document"] for x in external_data],
+                    "document": [doc for doc, x in enumerate(external_data, 30000)],
                     "tokens": [x["tokens"] for x in external_data],
                     "trailing_whitespace": [x["trailing_whitespace"] for x in external_data],
                     "provided_labels": [x["labels"] for x in external_data],
