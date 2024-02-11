@@ -525,7 +525,10 @@ def main(cfg: DictConfig):
 
             if eval_dict['ents_f5'] > best_score:
                 best_score = eval_dict['ents_f5']
-                torch.save(model.state_dict(), os.path.join(cfg.output_dir, f"{cfg.model_name.split(os.path.sep)[-1]}_fold{fold}_seed{cfg.seed}.bin"))
+                if cfg.multi_gpu:
+                    torch.save(model.module.state_dict(), os.path.join(cfg.output_dir, f"{cfg.model_name.split(os.path.sep)[-1]}_fold{fold}_seed{cfg.seed}.bin"))
+                else:
+                    torch.save(model.state_dict(), os.path.join(cfg.output_dir, f"{cfg.model_name.split(os.path.sep)[-1]}_fold{fold}_seed{cfg.seed}.bin"))
         
         
         if cfg.use_wandb:
