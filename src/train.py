@@ -109,7 +109,7 @@ def main(cfg: DictConfig):
 
     def generate_pred_df(preds, ds):
         id2label = {i: label for i, label in enumerate(LABELS)}
-        triplets = []
+        triplets = set()
         document, token, label, token_str = [], [], [], []
         for p, token_map, offsets, tokens, doc in zip(preds, ds["token_map"], ds["offset_mapping"], ds["tokens"], ds["document"]):
 
@@ -138,7 +138,7 @@ def main(cfg: DictConfig):
                         token.append(token_id)
                         label.append(label_pred)
                         token_str.append(tokens[token_id])
-                        triplets.append(triplet)
+                        triplets.add(triplet)
 
 
         df = pd.DataFrame({
