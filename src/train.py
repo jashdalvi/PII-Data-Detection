@@ -498,6 +498,7 @@ def main(cfg: DictConfig):
         model.to(cfg.device)
 
         if cfg.multi_gpu:
+            print("Using Multi-GPU Setup")
             model = nn.DataParallel(model)
         
         num_train_steps = int(len(train_ds) / cfg.batch_size / cfg.gradient_accumulation_steps * cfg.epochs)
