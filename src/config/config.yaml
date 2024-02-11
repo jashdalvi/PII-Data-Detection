@@ -26,5 +26,6 @@ repo_id: ""
 freeze: False
 start_freeze_layer: 0
 end_freeze_layer: 6
+threshold: 0.9
 llrd: 1
 use_external_data: True

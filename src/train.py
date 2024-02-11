@@ -352,7 +352,7 @@ def main(cfg: DictConfig):
         
         return losses.avg
 
-    def postprocess_labels(outputs):
+    def postprocess_labels(outputs, threshold = 0.9):
         predictions = outputs.cpu().numpy()
         pred_softmax = np.exp(predictions) / np.sum(np.exp(predictions), axis = 2).reshape(predictions.shape[0],predictions.shape[1],1)
         id2label = {i: label for i, label in enumerate(LABELS)}
@@ -360,7 +360,6 @@ def main(cfg: DictConfig):
         preds_without_O = pred_softmax[:,:,:12].argmax(-1)
         O_preds = pred_softmax[:,:,12]
 
-        threshold = 0.6
         preds_final = np.where(O_preds < threshold, preds_without_O , preds)
         return preds_final
 
@@ -381,7 +380,7 @@ def main(cfg: DictConfig):
             outputs = model(**batch)
             loss = criterion(outputs, labels)
             losses.update(loss.item(), cfg.batch_size)
-            all_preds.extend(postprocess_labels(outputs).tolist())
+            all_preds.extend(postprocess_labels(outputs, threshold=cfg.threshold).tolist())
 
         return all_preds, losses.avg
 
@@ -460,7 +459,8 @@ def main(cfg: DictConfig):
 
         # lots of newlines in the text
         # adding this should be helpful
-        tokenizer.add_tokens(AddedToken("\n", normalized=False))
+        # Not adding "\n" as a token as it is not present in the tokenizer's vocab"
+        # tokenizer.add_tokens(AddedToken("\n", normalized=False))
 
 
         ds = ds.map(
@@ -491,7 +491,8 @@ def main(cfg: DictConfig):
         )
 
         model = Model()
-        model.transformer.resize_token_embeddings(len(tokenizer))
+        # Do not resize the token embeddings
+        # model.transformer.resize_token_embeddings(len(tokenizer))
         model.to(cfg.device)
 
         if cfg.multi_gpu:
