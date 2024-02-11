@@ -74,6 +74,8 @@ def main(cfg: DictConfig):
         torch.cuda.manual_seed(seed)
         torch.backends.cudnn.deterministic = True
 
+    seed_everything(seed=cfg.seed)
+
     def generate_gt_df(ds):
         reference_data = []
         for doc, tokens, labels in zip(ds["document"], ds["tokens"], ds["provided_labels"]):
