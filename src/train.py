@@ -461,8 +461,7 @@ def main(cfg: DictConfig):
 
         # lots of newlines in the text
         # adding this should be helpful
-        # Not adding "\n" as a token as it is not present in the tokenizer's vocab"
-        # tokenizer.add_tokens(AddedToken("\n", normalized=False))
+        tokenizer.add_tokens(AddedToken("\n", normalized=False))
 
 
         ds = ds.map(
@@ -494,7 +493,7 @@ def main(cfg: DictConfig):
 
         model = Model()
         # Do not resize the token embeddings
-        # model.transformer.resize_token_embeddings(len(tokenizer))
+        model.transformer.resize_token_embeddings(len(tokenizer))
         model.to(cfg.device)
 
         if cfg.multi_gpu:
