@@ -112,6 +112,7 @@ def main(cfg: DictConfig):
         id2label = {i: label for i, label in enumerate(LABELS)}
         triplets = set()
         document, token, label, token_str = [], [], [], []
+        #TODO: This is wrong. This is actually merging the labels and not the predictions LOL. Need to figure out a better way to do this
         if cfg.stride > 0:
             # Average the predictions of overlapping tokens
             groupby_preds = OrderedDict()
