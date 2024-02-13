@@ -652,7 +652,9 @@ def main(cfg: DictConfig):
     #     fold_scores.append(fold_score)
     
     if cfg.train_whole_dataset:
-        train_whole_dataset()
+        for seed in [41,42]:
+            cfg.seed = seed
+            train_whole_dataset()
 
 
     # cv = np.mean(fold_scores)
