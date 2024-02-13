@@ -648,10 +648,10 @@ def main(cfg: DictConfig):
         
         torch.cuda.empty_cache()
 
-    # fold_scores = []
-    # for fold in range(4):
-    #     fold_score = main_fold(fold)
-    #     fold_scores.append(fold_score)
+    fold_scores = []
+    for fold in range(1):
+        fold_score = main_fold(fold)
+        fold_scores.append(fold_score)
     
     if cfg.train_whole_dataset:
         for seed in [41,42]:
@@ -659,8 +659,7 @@ def main(cfg: DictConfig):
             train_whole_dataset()
 
 
-    # cv = np.mean(fold_scores)
-    cv = 0.9488
+    cv = np.mean(fold_scores)
     print(f"CV SCORE: {cv:.4f}")
 
     login(os.environ.get("HF_HUB_TOKEN"))
@@ -680,8 +679,8 @@ def main(cfg: DictConfig):
     # Commenting out the kaggle api dataset upload code
     subprocess.run(["kaggle", "datasets", "init", "-p", cfg.output_dir], check=True)
     kaggle_dataset_metadata = {
-        "title": f"pii-data-detection-{cfg.model_name.split(os.path.sep)[-1]}-cv-{cv:.4f}-full",
-        "id": f"jashdalvi99/pii-data-detection-{cfg.model_name.split(os.path.sep)[-1]}-cv-{cv:.4f}-full".replace(".", ""),
+        "title": f"pii-data-detection-{cfg.model_name.split(os.path.sep)[-1]}-cv-{cv:.4f}",
+        "id": f"jashdalvi99/pii-data-detection-{cfg.model_name.split(os.path.sep)[-1]}-cv-{cv:.4f}".replace(".", ""),
         "licenses": [
             {
             "name": "CC0-1.0"
