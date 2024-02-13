@@ -247,7 +247,6 @@ def main(cfg: DictConfig):
             config = AutoConfig.from_pretrained(self.model_name)
 
             config.update({
-                    "output_hidden_states": True,
                     "hidden_dropout_prob": cfg.hidden_dropout_prob,
                     "attention_probs_dropout_prob" : cfg.hidden_dropout_prob,
                     "layer_norm_eps": cfg.layer_norm_eps,
@@ -256,6 +255,7 @@ def main(cfg: DictConfig):
             })
 
             self.transformer = AutoModel.from_pretrained(self.model_name, config=config)
+            self.dropout = nn.Dropout(cfg.hidden_dropout_prob)
             self.linear = nn.Linear(config.hidden_size, len(LABELS))
 
             if cfg.gradient_checkpointing_enable:
@@ -284,7 +284,7 @@ def main(cfg: DictConfig):
 
         def forward(self, input_ids, attention_mask):
             outputs = self.transformer(input_ids=input_ids, attention_mask=attention_mask)
-            logits = self.linear(outputs.last_hidden_state)
+            logits = self.linear(self.dropout(outputs.last_hidden_state))
             return logits
 
     def criterion(outputs, targets):

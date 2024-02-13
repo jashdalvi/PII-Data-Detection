@@ -23,7 +23,7 @@ project_name: "pii-kaggle"
 metadata_path: "../data/pii_texts.csv"
 output_dir: "../output/"
 repo_id: ""
-freeze: True
+freeze: False
 start_freeze_layer: 0
 end_freeze_layer: 6
 threshold: 0.9
