@@ -537,13 +537,126 @@ def main(cfg: DictConfig):
         torch.cuda.empty_cache()
 
         return best_score
+    
+    def train_whole_dataset():
+        """Main loop"""
+        # Seed everything
+        seed_everything(seed=cfg.seed)
+        if cfg.use_wandb:
+            run = wandb.init(project=cfg.project_name, 
+                            config=dict(cfg), 
+                            group = cfg.model_name, 
+                            reinit=True)
+            wandb.define_metric("train/step")
+            wandb.define_metric("valid/step")
+            # define which metrics will be plotted against it
+            wandb.define_metric("train/*", step_metric="train/step")
+            wandb.define_metric("valid/*", step_metric="valid/step")
 
-    fold_scores = []
-    for fold in range(4):
-        fold_score = main_fold(fold)
-        fold_scores.append(fold_score)
+        with open("../data/train.json") as f:
+            data = json.load(f)
 
-    cv = np.mean(fold_scores)
+        ds = Dataset.from_dict({
+            "full_text": [x["full_text"] for x in data],
+            "document": [x["document"] for x in data],
+            "tokens": [x["tokens"] for x in data],
+            "trailing_whitespace": [x["trailing_whitespace"] for x in data],
+            "provided_labels": [x["labels"] for x in data],
+        })
+
+        if cfg.use_external_data:
+            with open("../data/mixtral-8x7b-v1.json") as f:
+                external_data = json.load(f)
+
+            external_ds = Dataset.from_dict(
+                {
+                    "full_text": [x["full_text"] for x in external_data],
+                    "document": [doc for doc, x in enumerate(external_data, 30000)],
+                    "tokens": [x["tokens"] for x in external_data],
+                    "trailing_whitespace": [x["trailing_whitespace"] for x in external_data],
+                    "provided_labels": [x["labels"] for x in external_data],
+                }
+            )
+
+            ## Check that the features are the same and then concatenate
+            assert ds.features.type == external_ds.features.type
+            ds = concatenate_datasets([ds, external_ds])
+
+        label2id = {label: i for i, label in enumerate(LABELS)}
+        id2label = {i: label for i, label in enumerate(LABELS)}
+
+        tokenizer = AutoTokenizer.from_pretrained(cfg.model_name)
+
+        # lots of newlines in the text
+        # adding this should be helpful
+        tokenizer.add_tokens(AddedToken("\n", normalized=False))
+
+
+        ds = ds.map(
+            tokenize, 
+            fn_kwargs={"tokenizer": tokenizer, "label2id": label2id, "max_length": cfg.max_length}, 
+            num_proc=4,
+        ).remove_columns(["full_text", "trailing_whitespace", "provided_labels"])
+
+        ds = build_flatten_ds(ds)
+        collator = Collate(tokenizer)
+
+        train_loader = torch.utils.data.DataLoader(
+            ds, 
+            batch_size=cfg.batch_size, 
+            shuffle=True, 
+            num_workers=cfg.num_workers,
+            collate_fn=collator
+        )
+
+        model = Model()
+        # Do not resize the token embeddings
+        model.transformer.resize_token_embeddings(len(tokenizer))
+        model.to(cfg.device)
+
+        if cfg.multi_gpu:
+            print("Using Multi-GPU Setup")
+            model = nn.DataParallel(model)
+        
+        num_train_steps = int(len(ds) / cfg.batch_size / cfg.gradient_accumulation_steps * cfg.epochs)
+
+        if cfg.multi_gpu:
+            optimizer, scheduler = get_optimizer_scheduler(model.module, num_train_steps)
+        else:
+            optimizer, scheduler = get_optimizer_scheduler(model, num_train_steps)
+
+        scaler = GradScaler()
+
+        for epoch in range(cfg.epochs):
+            print(f"Training FULL FOLD: EPOCH: {epoch + 1}")
+
+            train_loss = train(epoch, model, train_loader, optimizer, scheduler, cfg.device, scaler)
+            if cfg.use_wandb:
+                wandb.log({"valid/train_loss_avg": train_loss, 
+                        "valid/step": epoch})
+            
+            if cfg.multi_gpu:
+                torch.save(model.module.state_dict(), os.path.join(cfg.output_dir, f"{cfg.model_name.split(os.path.sep)[-1]}_full_fold_seed{cfg.seed}.bin"))
+            else:
+                torch.save(model.state_dict(), os.path.join(cfg.output_dir, f"{cfg.model_name.split(os.path.sep)[-1]}_full_fold_seed{cfg.seed}.bin"))
+        
+        
+        if cfg.use_wandb:
+            run.finish()
+        
+        torch.cuda.empty_cache()
+
+    # fold_scores = []
+    # for fold in range(4):
+    #     fold_score = main_fold(fold)
+    #     fold_scores.append(fold_score)
+    
+    if cfg.train_whole_dataset:
+        train_whole_dataset()
+
+
+    # cv = np.mean(fold_scores)
+    cv = 0.9488
     print(f"CV SCORE: {cv:.4f}")
 
     login(os.environ.get("HF_HUB_TOKEN"))
@@ -563,8 +676,8 @@ def main(cfg: DictConfig):
     # Commenting out the kaggle api dataset upload code
     subprocess.run(["kaggle", "datasets", "init", "-p", cfg.output_dir], check=True)
     kaggle_dataset_metadata = {
-        "title": f"pii-data-detection-{cfg.model_name.split(os.path.sep)[-1]}-cv-{cv:.4f}",
-        "id": f"jashdalvi99/pii-data-detection-{cfg.model_name.split(os.path.sep)[-1]}-cv-{cv:.4f}".replace(".", ""),
+        "title": f"pii-data-detection-{cfg.model_name.split(os.path.sep)[-1]}-cv-{cv:.4f}-full",
+        "id": f"jashdalvi99/pii-data-detection-{cfg.model_name.split(os.path.sep)[-1]}-cv-{cv:.4f}-full".replace(".", ""),
         "licenses": [
             {
             "name": "CC0-1.0"
