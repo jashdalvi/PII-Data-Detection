@@ -25,6 +25,7 @@ import warnings
 from huggingface_hub import HfApi, login, create_repo
 import subprocess
 import shutil
+from collections import OrderedDict
 transformers.logging.set_verbosity_error()
 warnings.filterwarnings("ignore")
 
@@ -111,6 +112,27 @@ def main(cfg: DictConfig):
         id2label = {i: label for i, label in enumerate(LABELS)}
         triplets = set()
         document, token, label, token_str = [], [], [], []
+        if cfg.stride > 0:
+            # Average the predictions of overlapping tokens
+            groupby_preds = OrderedDict()
+            for p, doc, offsets in zip(preds, ds["document"], ds["offset_mapping"]):
+                if doc not in groupby_preds:
+                    groupby_preds[doc] = []
+                groupby_preds[doc].append(p[:len(offsets)])
+            merged_preds = []
+            for doc in groupby_preds:
+                doc_preds = groupby_preds[doc]
+                for i in range(len(doc_preds) - 1):
+                    total_stride = cfg.stride + 1 # Add extra token for special tokens
+                    mean_preds = ((np.array(doc_preds[i][-total_stride :]) + np.array(doc_preds[i+1][:total_stride])) / 2).tolist()
+                    doc_preds[i][-total_stride:] = mean_preds
+                    doc_preds[i+1][:total_stride] = mean_preds
+                    merged_preds.append(doc_preds[i])
+                
+                merged_preds.append(doc_preds[-1])
+            
+            preds = merged_preds.copy()
+
         for p, token_map, offsets, tokens, doc in zip(preds, ds["token_map"], ds["offset_mapping"], ds["tokens"], ds["document"]):
 
             for token_pred, (start_idx, end_idx) in zip(p, offsets):
@@ -197,7 +219,7 @@ def main(cfg: DictConfig):
             token_map_idx += 1
 
 
-        tokenized = tokenizer("".join(text), return_offsets_mapping=True, truncation = True, max_length=max_length, return_overflowing_tokens=True, stride = 0)
+        tokenized = tokenizer("".join(text), return_offsets_mapping=True, truncation = True, max_length=max_length, return_overflowing_tokens=True, stride = cfg.stride)
         
         labels = np.array(labels)
         
