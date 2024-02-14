@@ -106,6 +106,19 @@ def main(cfg: DictConfig):
                 dataset_dict[feature].extend(example[feature])
 
         return Dataset.from_dict(dataset_dict)
+    
+    def softmax(x):
+        """Compute softmax values for each sets of scores in x."""
+        e_x = np.exp(x - np.max(x))
+        return e_x / e_x.sum(axis=-1, keepdims=True)
+    
+    def postprocess_labels(predictions, threshold = 0.9):
+        preds = predictions.argmax(-1)
+        preds_without_O = predictions[:,:12].argmax(-1)
+        O_preds = predictions[:,12]
+
+        preds_final = np.where(O_preds < threshold, preds_without_O , preds)
+        return preds_final
 
 
     def generate_pred_df(preds, ds):
@@ -119,7 +132,7 @@ def main(cfg: DictConfig):
             for p, doc, offsets in zip(preds, ds["document"], ds["offset_mapping"]):
                 if doc not in groupby_preds:
                     groupby_preds[doc] = []
-                groupby_preds[doc].append(p[:len(offsets)])
+                groupby_preds[doc].append(softmax(p[:len(offsets)]))
             merged_preds = []
             for doc in groupby_preds:
                 doc_preds = groupby_preds[doc]
@@ -133,6 +146,10 @@ def main(cfg: DictConfig):
                 merged_preds.append(doc_preds[-1])
             
             preds = merged_preds.copy()
+        else:
+            preds = [softmax(p) for p in preds]
+        
+        preds = [postprocess_labels(p, threshold=cfg.threshold) for p in preds]
 
         for p, token_map, offsets, tokens, doc in zip(preds, ds["token_map"], ds["offset_mapping"], ds["tokens"], ds["document"]):
 
@@ -377,18 +394,6 @@ def main(cfg: DictConfig):
         
         return losses.avg
 
-    def postprocess_labels(outputs, threshold = 0.9):
-        predictions = outputs.cpu().numpy()
-        pred_softmax = np.exp(predictions) / np.sum(np.exp(predictions), axis = 2).reshape(predictions.shape[0],predictions.shape[1],1)
-        id2label = {i: label for i, label in enumerate(LABELS)}
-        preds = predictions.argmax(-1)
-        preds_without_O = pred_softmax[:,:,:12].argmax(-1)
-        O_preds = pred_softmax[:,:,12]
-
-        preds_final = np.where(O_preds < threshold, preds_without_O , preds)
-        return preds_final
-
-
     @torch.inference_mode()
     def evaluate(epoch, model, valid_loader, device):
         """evaluate pass"""
@@ -405,7 +410,7 @@ def main(cfg: DictConfig):
             outputs = model(**batch)
             loss = criterion(outputs, labels)
             losses.update(loss.item(), cfg.batch_size)
-            all_preds.extend(postprocess_labels(outputs, threshold=cfg.threshold).tolist())
+            all_preds.extend([np.squeeze(output, 0) for output in outputs.detach().cpu().numpy().split(len(outputs))])
 
         return all_preds, losses.avg
 
