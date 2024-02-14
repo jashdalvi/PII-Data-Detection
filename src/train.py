@@ -410,7 +410,7 @@ def main(cfg: DictConfig):
             outputs = model(**batch)
             loss = criterion(outputs, labels)
             losses.update(loss.item(), cfg.batch_size)
-            all_preds.extend([np.squeeze(output, 0) for output in outputs.detach().cpu().numpy().split(len(outputs))])
+            all_preds.extend([np.squeeze(output, 0) for output in np.split(outputs.detach().cpu().numpy(), len(outputs))])
 
         return all_preds, losses.avg
 
