@@ -336,7 +336,7 @@ def main(cfg: DictConfig):
         optimizer_params = [
             {
                 "params": [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
-                "weight_decay": 0.001,
+                "weight_decay": cfg.weight_decay,
                 "lr" : cfg.lr
             },
             {
@@ -394,7 +394,6 @@ def main(cfg: DictConfig):
         
         return losses.avg
 
-    @torch.inference_mode()
     def evaluate(epoch, model, valid_loader, device):
         """evaluate pass"""
         model.eval()
@@ -406,8 +405,10 @@ def main(cfg: DictConfig):
                 batch[k] = v.to(device)
             
             labels = batch.pop("labels")
+
+            with torch.no_grad():
+                outputs = model(**batch)
             
-            outputs = model(**batch)
             loss = criterion(outputs, labels)
             losses.update(loss.item(), cfg.batch_size)
             all_preds.extend([np.squeeze(output, 0) for output in np.split(outputs.detach().cpu().numpy(), len(outputs))])
@@ -430,26 +431,10 @@ def main(cfg: DictConfig):
         all_outputs = np.vstack(all_outputs)
         return all_outputs
     
-    def main_fold(fold):
-        """Main loop"""
-        best_score = 0
-        # Seed everything
-        seed_everything(seed=cfg.seed)
-        if cfg.use_wandb:
-            run = wandb.init(project=cfg.project_name, 
-                            config=dict(cfg), 
-                            group = cfg.model_name, 
-                            reinit=True)
-            wandb.define_metric("train/step")
-            wandb.define_metric("valid/step")
-            # define which metrics will be plotted against it
-            wandb.define_metric("train/*", step_metric="train/step")
-            wandb.define_metric("valid/*", step_metric="valid/step")
 
+    def prepare_data(fold = 0):
         with open("../data/train.json") as f:
             data = json.load(f)
-
-        
 
         ds = Dataset.from_dict({
             "full_text": [x["full_text"] for x in data],
@@ -483,14 +468,8 @@ def main(cfg: DictConfig):
         valid_reference_df = generate_gt_df(ds.filter(lambda x: x["fold"] == fold, num_proc=4))
 
         label2id = {label: i for i, label in enumerate(LABELS)}
-        id2label = {i: label for i, label in enumerate(LABELS)}
 
         tokenizer = AutoTokenizer.from_pretrained(cfg.model_name)
-
-        # lots of newlines in the text
-        # adding this should be helpful
-        tokenizer.add_tokens(AddedToken("\n", normalized=False))
-
 
         ds = ds.map(
             tokenize, 
@@ -502,6 +481,26 @@ def main(cfg: DictConfig):
 
         train_ds = ds.filter(lambda x: x["fold"] != fold, num_proc=4)
         valid_ds = ds.filter(lambda x: x["fold"] == fold, num_proc=4)
+
+        return train_ds, valid_ds, ds, valid_reference_df, tokenizer
+    
+    def main_fold(fold, train_ds, valid_ds, tokenizer, valid_reference_df):
+        """Main loop"""
+        best_score = 0
+        # Seed everything
+        seed_everything(seed=cfg.seed)
+        if cfg.use_wandb:
+            run = wandb.init(project=cfg.project_name, 
+                            config=dict(cfg), 
+                            group = cfg.model_name, 
+                            reinit=True)
+            wandb.define_metric("train/step")
+            wandb.define_metric("valid/step")
+            # define which metrics will be plotted against it
+            wandb.define_metric("train/*", step_metric="train/step")
+            wandb.define_metric("valid/*", step_metric="valid/step")
+
+        
         collator = Collate(tokenizer)
 
         train_loader = torch.utils.data.DataLoader(
@@ -521,7 +520,7 @@ def main(cfg: DictConfig):
 
         model = Model()
         # Do not resize the token embeddings
-        model.transformer.resize_token_embeddings(len(tokenizer))
+        # model.transformer.resize_token_embeddings(len(tokenizer))
         model.to(cfg.device)
 
         if cfg.multi_gpu:
@@ -566,7 +565,7 @@ def main(cfg: DictConfig):
 
         return best_score
     
-    def train_whole_dataset():
+    def train_whole_dataset(ds, tokenizer):
         """Main loop"""
         # Seed everything
         seed_everything(seed=cfg.seed)
@@ -581,54 +580,10 @@ def main(cfg: DictConfig):
             wandb.define_metric("train/*", step_metric="train/step")
             wandb.define_metric("valid/*", step_metric="valid/step")
 
-        with open("../data/train.json") as f:
-            data = json.load(f)
-
-        ds = Dataset.from_dict({
-            "full_text": [x["full_text"] for x in data],
-            "document": [x["document"] for x in data],
-            "tokens": [x["tokens"] for x in data],
-            "trailing_whitespace": [x["trailing_whitespace"] for x in data],
-            "provided_labels": [x["labels"] for x in data],
-            "fold": [0 for _ in data]
-        })
-
-        if cfg.use_external_data:
-            with open("../data/mixtral-8x7b-v1.json") as f:
-                external_data = json.load(f)
-
-            external_ds = Dataset.from_dict(
-                {
-                    "full_text": [x["full_text"] for x in external_data],
-                    "document": [doc for doc, x in enumerate(external_data, 30000)],
-                    "tokens": [x["tokens"] for x in external_data],
-                    "trailing_whitespace": [x["trailing_whitespace"] for x in external_data],
-                    "provided_labels": [x["labels"] for x in external_data],
-                    "fold": [0 for _ in external_data]
-                }
-            )
-
-            ## Check that the features are the same and then concatenate
-            assert ds.features.type == external_ds.features.type
-            ds = concatenate_datasets([ds, external_ds])
-
-        label2id = {label: i for i, label in enumerate(LABELS)}
-        id2label = {i: label for i, label in enumerate(LABELS)}
-
-        tokenizer = AutoTokenizer.from_pretrained(cfg.model_name)
-
         # lots of newlines in the text
         # adding this should be helpful
-        tokenizer.add_tokens(AddedToken("\n", normalized=False))
+        # tokenizer.add_tokens(AddedToken("\n", normalized=False))
 
-
-        ds = ds.map(
-            tokenize, 
-            fn_kwargs={"tokenizer": tokenizer, "label2id": label2id, "max_length": cfg.max_length}, 
-            num_proc=4,
-        ).remove_columns(["full_text", "trailing_whitespace", "provided_labels"])
-
-        ds = build_flatten_ds(ds)
         collator = Collate(tokenizer)
 
         train_loader = torch.utils.data.DataLoader(
@@ -641,7 +596,7 @@ def main(cfg: DictConfig):
 
         model = Model()
         # Do not resize the token embeddings
-        model.transformer.resize_token_embeddings(len(tokenizer))
+        # model.transformer.resize_token_embeddings(len(tokenizer))
         model.to(cfg.device)
 
         if cfg.multi_gpu:
@@ -677,14 +632,15 @@ def main(cfg: DictConfig):
         torch.cuda.empty_cache()
 
     fold_scores = []
+    train_ds, valid_ds, ds, valid_reference_df, tokenizer = prepare_data()
     for fold in range(1):
-        fold_score = main_fold(fold)
+        fold_score = main_fold(fold, train_ds, valid_ds, tokenizer, valid_reference_df)
         fold_scores.append(fold_score)
     
     if cfg.train_whole_dataset:
         for seed in [41,42]:
             cfg.seed = seed
-            train_whole_dataset()
+            train_whole_dataset(ds, tokenizer)
 
 
     cv = np.mean(fold_scores)
@@ -693,7 +649,7 @@ def main(cfg: DictConfig):
     login(os.environ.get("HF_HUB_TOKEN"))
 
     api = HfApi()
-    cfg.repo_id = f"jashdalvi/pii-data-detection-{cfg.model_name.split(os.path.sep)[-1]}-cv-{cv:.4f}"
+    cfg.repo_id = f"jashdalvi/pii-data-detection-{cfg.model_name.split(os.path.sep)[-1]}-cv-{cv:.5f}"
     # Creating a model repository in baseplate
     create_repo(cfg.repo_id, private= True, exist_ok=True)
     # Pushing the model to the hub
@@ -707,8 +663,8 @@ def main(cfg: DictConfig):
     # Commenting out the kaggle api dataset upload code
     subprocess.run(["kaggle", "datasets", "init", "-p", cfg.output_dir], check=True)
     kaggle_dataset_metadata = {
-        "title": f"pii-data-detection-{cfg.model_name.split(os.path.sep)[-1]}-cv-{cv:.4f}",
-        "id": f"jashdalvi99/pii-data-detection-{cfg.model_name.split(os.path.sep)[-1]}-cv-{cv:.4f}".replace(".", ""),
+        "title": f"pii-data-detection-{cfg.model_name.split(os.path.sep)[-1]}-cv-{cv:.5f}",
+        "id": f"jashdalvi99/pii-data-detection-{cfg.model_name.split(os.path.sep)[-1]}-cv-{cv:.5f}".replace(".", ""),
         "licenses": [
             {
             "name": "CC0-1.0"
