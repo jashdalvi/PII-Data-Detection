@@ -1,6 +1,6 @@
 import zipfile
 
-zipFileName = "/root/PII-Data-Detection/data/pii-detection-removal-from-educational-data.zip"
+zipFileName = "/root/PII-Data-Detection/data/pii-dataset.zip"
 zipPath = "/root/PII-Data-Detection/data/"
 zf = zipfile.ZipFile(zipFileName)
 zf.extractall(path=zipPath)

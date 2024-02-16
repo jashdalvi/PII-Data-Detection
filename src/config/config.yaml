@@ -4,12 +4,12 @@ hydra:
 
 batch_size: 8
 valid_batch_size: 8
-epochs: 3
+epochs: 1
 num_workers: 2
 lr: 2e-5
 max_length: 512
-stride: 256
-model_name: "microsoft/deberta-v3-large"
+stride: 0
+model_name: "microsoft/deberta-v3-base"
 hidden_dropout_prob: 0.1
 layer_norm_eps: 1e-7
 gradient_accumulation_steps: 2
@@ -32,4 +32,5 @@ threshold: 0.9
 llrd: 1
 use_external_data: True
 train_fold: True
-train_whole_dataset: True
+train_whole_dataset: False
+visualize: True

@@ -25,6 +25,8 @@ import warnings
 from huggingface_hub import HfApi, login, create_repo
 import subprocess
 import shutil
+from utils import filter_errors, generate_htmls_concurrently, visualize, convert_for_upload, postprocess_labels
+import spacy
 from collections import OrderedDict
 transformers.logging.set_verbosity_error()
 warnings.filterwarnings("ignore")
@@ -111,20 +113,11 @@ def main(cfg: DictConfig):
         """Compute softmax values for each sets of scores in x."""
         e_x = np.exp(x - np.max(x))
         return e_x / e_x.sum(axis=-1, keepdims=True)
-    
-    def postprocess_labels(predictions, threshold = 0.9):
-        preds = predictions.argmax(-1)
-        preds_without_O = predictions[:,:12].argmax(-1)
-        O_preds = predictions[:,12]
-
-        preds_final = np.where(O_preds < threshold, preds_without_O , preds)
-        return preds_final
-
 
     def generate_pred_df(preds, ds):
         id2label = {i: label for i, label in enumerate(LABELS)}
         triplets = set()
-        document, token, label, token_str = [], [], [], []
+        row, document, token, label, token_str = [], [], [], [], []
         #TODO: This is wrong. This is actually merging the labels and not the predictions LOL. Need to figure out a better way to do this
         if cfg.stride > 0:
             # Average the predictions of overlapping tokens
@@ -148,10 +141,12 @@ def main(cfg: DictConfig):
             preds = merged_preds.copy()
         else:
             preds = [softmax(p) for p in preds]
+
+        softmax_preds = preds.copy()
         
         preds = [postprocess_labels(p, threshold=cfg.threshold) for p in preds]
 
-        for p, token_map, offsets, tokens, doc in zip(preds, ds["token_map"], ds["offset_mapping"], ds["tokens"], ds["document"]):
+        for i, (p, token_map, offsets, tokens, doc) in enumerate(zip(preds, ds["token_map"], ds["offset_mapping"], ds["tokens"], ds["document"])):
 
             for token_pred, (start_idx, end_idx) in zip(p, offsets):
                 label_pred = id2label[int(token_pred)]
@@ -174,6 +169,7 @@ def main(cfg: DictConfig):
                     triplet = (label_pred, token_id, tokens[token_id])
 
                     if triplet not in triplets:
+                        row.append(i)
                         document.append(doc)
                         token.append(token_id)
                         label.append(label_pred)
@@ -182,6 +178,7 @@ def main(cfg: DictConfig):
 
 
         df = pd.DataFrame({
+            "eval_row": row,
             "document": document,
             "token": token,
             "label": label,
@@ -191,7 +188,7 @@ def main(cfg: DictConfig):
 
         df["row_id"] = list(range(len(df)))
 
-        return df[["row_id", "document", "token", "label"]].copy()
+        return df, softmax_preds
     
 
     class Collate:
@@ -487,6 +484,8 @@ def main(cfg: DictConfig):
     def main_fold(fold, train_ds, valid_ds, tokenizer, valid_reference_df):
         """Main loop"""
         best_score = 0
+        best_pred_df = None
+        best_softmax_preds = None
         # Seed everything
         seed_everything(seed=cfg.seed)
         if cfg.use_wandb:
@@ -541,7 +540,7 @@ def main(cfg: DictConfig):
 
             train_loss = train(epoch, model, train_loader, optimizer, scheduler, cfg.device, scaler)
             preds, valid_loss = evaluate(epoch, model, valid_loader, cfg.device)
-            pred_df = generate_pred_df(preds, valid_ds)
+            pred_df, softmax_preds = generate_pred_df(preds, valid_ds)
             eval_dict = compute_metrics(pred_df, valid_reference_df)
             print(f"\nValidation f5 score: {eval_dict['ents_f5']}")
             if cfg.use_wandb:
@@ -552,10 +551,30 @@ def main(cfg: DictConfig):
 
             if eval_dict['ents_f5'] > best_score:
                 best_score = eval_dict['ents_f5']
+                best_pred_df = pred_df
+                best_softmax_preds = softmax_preds
                 if cfg.multi_gpu:
                     torch.save(model.module.state_dict(), os.path.join(cfg.output_dir, f"{cfg.model_name.split(os.path.sep)[-1]}_fold{fold}_seed{cfg.seed}.bin"))
                 else:
                     torch.save(model.state_dict(), os.path.join(cfg.output_dir, f"{cfg.model_name.split(os.path.sep)[-1]}_fold{fold}_seed{cfg.seed}.bin"))
+        
+
+        # Prepare data to visualize errors and log them as a Weights & Biases table
+        print('Visualizing errors...')
+        if cfg.use_wandb and cfg.visualize:
+            id2label = {i: label for i, label in enumerate(LABELS)}
+            grouped_preds = best_pred_df.groupby('eval_row')[['document', 'token', 'label', 'token_str']].agg(list)    
+            viz_df = pd.merge(valid_reference_df.reset_index(), grouped_preds, how='left', left_on='index', right_on='eval_row')
+            viz_df = filter_errors(viz_df, best_pred_df)
+            viz_df['pred_viz'] = generate_htmls_concurrently(viz_df, tokenizer, best_softmax_preds, id2label, valid_ds, threshold=cfg.threshold)
+            nlp = spacy.blank("en")
+            htmls = [visualize(row, nlp) for _,row in viz_df.iterrows()]
+            wandb_htmls = [wandb.Html(html) for html in htmls]
+            viz_df['gt_viz'] = wandb_htmls
+            viz_df.fillna("", inplace=True)
+            viz_df = convert_for_upload(viz_df)
+            errors_table = wandb.Table(dataframe=viz_df)
+            wandb.log({'errors_table': errors_table})
         
         
         if cfg.use_wandb:
