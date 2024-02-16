@@ -270,7 +270,8 @@ def visualize(row, nlp, labels):
 
 def convert_for_upload(viz_df):
     for col in viz_df.columns:
-        viz_df[col] = viz_df[col].astype(str)
+        if "viz" not in col:
+            viz_df[col] = viz_df[col].astype(str)
     return viz_df
 
 def filter_errors(eval_df, preds_df):
@@ -308,12 +309,21 @@ def get_error_row_ids(valid_df, pred_df):
 
     error_row_ids = []
     for doc in doc_to_label_map_valid.keys():
-        valid_labels = sorted(doc_to_label_map_valid[doc], key = lambda x: x[0])
-        pred_labels = sorted(doc_to_label_map_pred[doc], key = lambda x: x[0])
+        valid_labels = sorted(doc_to_label_map_valid.get(doc, []), key = lambda x: x[0])
+        pred_labels = sorted(doc_to_label_map_pred.get(doc, []), key = lambda x: x[0])
         if valid_labels != pred_labels:
             error_row_ids.append(doc)
 
     return error_row_ids
+
+def get_unique_pairs(pairs):
+    unique_tokens = []
+    unique_pairs = []
+    for pair in pairs:
+        if pair[0] not in unique_tokens:
+            unique_pairs.append(pair)
+            unique_tokens.append(pair[0])
+    return unique_pairs
 
 def generate_visualization_df(viz_df, valid_df, pred_df, nlp):
     doc_to_label_map_valid = dict()
@@ -328,9 +338,9 @@ def generate_visualization_df(viz_df, valid_df, pred_df, nlp):
             doc_to_label_map_pred[row.document] = []
         doc_to_label_map_pred[row.document].append((int(row.token), row.label))
 
-    for i, row in viz_df.iterrows():
-        valid_labels = sorted(doc_to_label_map_valid[row.document], key = lambda x: x[0])
-        pred_labels = sorted(doc_to_label_map_pred[row.document], key = lambda x: x[0])
+    for i, row in tqdm(viz_df.iterrows(), total = len(viz_df)):
+        valid_labels = get_unique_pairs(sorted(doc_to_label_map_valid.get(row.document, []), key = lambda x: x[0]))
+        pred_labels = get_unique_pairs(sorted(doc_to_label_map_pred.get(row.document, []), key = lambda x: x[0]))
         gt_html = wandb.Html(visualize(row, nlp, valid_labels))
         pred_html = wandb.Html(visualize(row, nlp, pred_labels))
         viz_df.at[i, 'gt_viz'] = gt_html

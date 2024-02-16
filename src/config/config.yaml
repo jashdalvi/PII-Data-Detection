@@ -34,3 +34,4 @@ use_external_data: True
 train_fold: True
 train_whole_dataset: False
 visualize: True
+upload_models: False
