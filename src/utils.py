@@ -11,6 +11,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm.auto import tqdm
 from spacy.tokens import Span
 from spacy import displacy
+import wandb
 
 
 class PRFScore:
@@ -240,7 +241,7 @@ def generate_htmls_concurrently(viz_df, tokenizer, predictions, id2label, valid_
     htmls = [result[1] for result in results_with_index]
     return htmls
 
-def visualize(row, nlp):
+def visualize(row, nlp, labels):
     options = {
         "colors": {
             "B-NAME_STUDENT": "aqua",
@@ -261,38 +262,15 @@ def visualize(row, nlp):
     }
     doc = nlp(row.full_text)
     doc.ents = [
-        Span(doc, idx, idx + 1, label=label)
-        for idx, label in enumerate(row.labels)
-        if label != "O"
+        Span(doc, token_idx, token_idx + 1, label=label)
+        for token_idx, label in labels
     ]
     html = displacy.render(doc, style="ent", jupyter=False, options=options)
     return html
 
 def convert_for_upload(viz_df):
-    mapping = {'index': 'str',
-     'document_x': 'str',
-     'valid': 'str',
-     'tokens': 'str',
-     'trailing_whitespace': 'str',
-     'labels': 'str',
-     'token_indices': 'str',
-     'full_text': 'str',
-     'unique_labels': 'str',
-     'EMAIL': 'str',
-     'ID_NUM': 'str',
-     'NAME_STUDENT': 'str',
-     'PHONE_NUM': 'str',
-     'STREET_ADDRESS': 'str',
-     'URL_PERSONAL': 'str',
-     'USERNAME': 'str',
-     'OTHER': 'str',
-     'document_y': 'str',
-     'token': 'str',
-     'label': 'str',
-     'token_str': 'str',
-    }
-    for key,type in mapping.items():
-        viz_df[key] = viz_df[key].astype(type)
+    for col in viz_df.columns:
+        viz_df[col] = viz_df[col].astype(str)
     return viz_df
 
 def filter_errors(eval_df, preds_df):
@@ -314,4 +292,51 @@ def filter_errors(eval_df, preds_df):
     eval_df['pred_string'] = pred_strings
     eval_df['error'] = eval_df['target_string'] != eval_df['pred_string']
     return eval_df[eval_df.error == True]
+
+def get_error_row_ids(valid_df, pred_df):
+    doc_to_label_map_valid = dict()
+    for i, row in valid_df.iterrows():
+        if row.document not in doc_to_label_map_valid:
+            doc_to_label_map_valid[row.document] = []
+        doc_to_label_map_valid[row.document].append((int(row.token), row.label))
+    
+    doc_to_label_map_pred= dict()
+    for i, row in pred_df.iterrows():
+        if row.document not in doc_to_label_map_pred:
+            doc_to_label_map_pred[row.document] = []
+        doc_to_label_map_pred[row.document].append((int(row.token), row.label))
+
+    error_row_ids = []
+    for doc in doc_to_label_map_valid.keys():
+        valid_labels = sorted(doc_to_label_map_valid[doc], key = lambda x: x[0])
+        pred_labels = sorted(doc_to_label_map_pred[doc], key = lambda x: x[0])
+        if valid_labels != pred_labels:
+            error_row_ids.append(doc)
+
+    return error_row_ids
+
+def generate_visualization_df(viz_df, valid_df, pred_df, nlp):
+    doc_to_label_map_valid = dict()
+    for i, row in valid_df.iterrows():
+        if row.document not in doc_to_label_map_valid:
+            doc_to_label_map_valid[row.document] = []
+        doc_to_label_map_valid[row.document].append((int(row.token), row.label))
+    
+    doc_to_label_map_pred= dict()
+    for i, row in pred_df.iterrows():
+        if row.document not in doc_to_label_map_pred:
+            doc_to_label_map_pred[row.document] = []
+        doc_to_label_map_pred[row.document].append((int(row.token), row.label))
+
+    for i, row in viz_df.iterrows():
+        valid_labels = sorted(doc_to_label_map_valid[row.document], key = lambda x: x[0])
+        pred_labels = sorted(doc_to_label_map_pred[row.document], key = lambda x: x[0])
+        gt_html = wandb.Html(visualize(row, nlp, valid_labels))
+        pred_html = wandb.Html(visualize(row, nlp, pred_labels))
+        viz_df.at[i, 'gt_viz'] = gt_html
+        viz_df.at[i, 'pred_viz'] = pred_html
+
+    viz_df.fillna("", inplace=True)
+    viz_df = convert_for_upload(viz_df)
+    return viz_df
 

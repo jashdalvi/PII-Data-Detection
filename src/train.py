@@ -25,7 +25,7 @@ import warnings
 from huggingface_hub import HfApi, login, create_repo
 import subprocess
 import shutil
-from utils import filter_errors, generate_htmls_concurrently, visualize, convert_for_upload, postprocess_labels
+from utils import postprocess_labels, get_error_row_ids, generate_visualization_df
 import spacy
 from collections import OrderedDict
 transformers.logging.set_verbosity_error()
@@ -563,19 +563,13 @@ def main(cfg: DictConfig):
         print('Visualizing errors...')
         if cfg.use_wandb and cfg.visualize:
             id2label = {i: label for i, label in enumerate(LABELS)}
-            grouped_preds = best_pred_df.groupby('eval_row')[['document', 'token', 'label', 'token_str']].agg(list)    
-            viz_df = pd.merge(valid_reference_df.reset_index(), grouped_preds, how='left', left_on='index', right_on='eval_row')
-            viz_df = filter_errors(viz_df, best_pred_df)
-            viz_df['pred_viz'] = generate_htmls_concurrently(viz_df, tokenizer, best_softmax_preds, id2label, valid_ds, threshold=cfg.threshold)
+            error_row_ids = get_error_row_ids(valid_reference_df, best_pred_df)
+            viz_df = pd.read_json("../data/train.json")
+            viz_df = viz_df[viz_df.document.isin(error_row_ids)][["document", "full_text"]]
             nlp = spacy.blank("en")
-            htmls = [visualize(row, nlp) for _,row in viz_df.iterrows()]
-            wandb_htmls = [wandb.Html(html) for html in htmls]
-            viz_df['gt_viz'] = wandb_htmls
-            viz_df.fillna("", inplace=True)
-            viz_df = convert_for_upload(viz_df)
+            viz_df = generate_visualization_df(viz_df, valid_reference_df, best_pred_df, nlp)
             errors_table = wandb.Table(dataframe=viz_df)
             wandb.log({'errors_table': errors_table})
-        
         
         if cfg.use_wandb:
             run.finish()
