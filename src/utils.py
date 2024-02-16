@@ -168,79 +168,6 @@ def postprocess_labels(predictions, threshold = 0.9):
     preds_final = np.where(O_preds < threshold, preds_without_O , preds)
     return preds_final
 
-
-def visualize_prediction_html(tokenizer, row_id, predictions, id2label, ds, threshold=0.9):
-    # Define colors for each label using the provided color map
-    label_colors = {
-        "B-NAME_STUDENT": "aqua",
-        "I-NAME_STUDENT": "skyblue",
-        "B-EMAIL": "limegreen",
-        "I-EMAIL": "lime",
-        "B-USERNAME": "hotpink",
-        "I-USERNAME": "lightpink",
-        "B-ID_NUM": "purple",
-        "I-ID_NUM": "rebeccapurple",
-        "B-PHONE_NUM": "red",
-        "I-PHONE_NUM": "salmon",
-        "B-URL_PERSONAL": "silver",
-        "I-URL_PERSONAL": "lightgray",
-        "B-STREET_ADDRESS": "brown",
-        "I-STREET_ADDRESS": "chocolate",
-    }
-
-    # Process predictions to get softmax probabilities, excluding the last column ("O" class)
-    pred_softmax = predictions
-    
-    # Find the document in the dataset using row_id
-    doc_tokens = [tokenizer.decode(x) for x in ds["input_ids"][row_id]]
-    doc_predictions = pred_softmax[row_id]
-    doc_labels = postprocess_labels(doc_predictions, threshold=threshold)
-    
-
-    # Start building HTML content
-    html_content = '<div style="font-family: Arial; color: black; font-size: larger;">'
-    for token, token_pred, token_softmax in zip(doc_tokens, doc_labels, doc_predictions):
-        label_pred = id2label[token_pred]
-        if label_pred != "O":
-            color = label_colors.get(label_pred, "#FFFFFF")  # Default color is white if label not found
-            opacity = np.max(token_softmax[:-1])  # Use the max softmax score as opacity
-            rgba_color = get_rgba(color, opacity)
-            html_content += f'<span style="background-color: {rgba_color};">{token}</span> '
-        else:
-            html_content += f'{token} '
-
-    # Add all tokens with probability above threshold
-    max_probs = np.max(doc_predictions[:,:-1], axis = -1)
-    high_prob_indices = np.where(max_probs > threshold)
-    for index in high_prob_indices[0]:
-        high_prob_label = id2label[doc_labels[index]]
-        high_prob_value = max_probs[index]
-        high_prob_color = label_colors.get(high_prob_label, "#FFFFFF")
-        rgba_color = get_rgba(high_prob_color, high_prob_value)
-        html_content += f'<p>High probability token: <span style="background-color: {rgba_color};">{doc_tokens[index]}</span> Label: {high_prob_label} Probability: {high_prob_value}</p>'
-    
-    # Add legend for class-color mapping
-    html_content += '<div><p>Legend:</p><ul>'
-    for label, color in label_colors.items():
-        html_content += f'<li><span style="background-color: {get_rgba(color, 1)};">{label}</span></li>'
-    html_content += '</ul></div></div>'
-    return html_content
-
-def process_html(tokenizer, index, predictions, id2label, valid_ds, threshold=0.9):
-    return index, wandb.Html(visualize_prediction_html(tokenizer, index, predictions, id2label, valid_ds, threshold=0.9))
-
-def generate_htmls_concurrently(viz_df, tokenizer, predictions, id2label, valid_ds, threshold=0.9):
-    results_with_index = []
-    with ProcessPoolExecutor() as executor:
-        futures = [executor.submit(process_html, tokenizer, i, predictions, id2label, valid_ds, threshold=threshold) for i in viz_df.index.values.tolist()]
-        for future in tqdm(as_completed(futures), total=len(viz_df)):
-            results_with_index.append(future.result())
-    
-    # Sort the results by index to maintain the original order
-    results_with_index.sort(key=lambda x: x[0])
-    htmls = [result[1] for result in results_with_index]
-    return htmls
-
 def visualize(row, nlp, labels):
     options = {
         "colors": {
@@ -273,26 +200,6 @@ def convert_for_upload(viz_df):
         if "viz" not in col:
             viz_df[col] = viz_df[col].astype(str)
     return viz_df
-
-def filter_errors(eval_df, preds_df):
-    target_strings = []
-    for i,row in eval_df.iterrows():
-        target_string = [f'{t}: {l}' for t,l in zip(row.tokens, row.labels) if l != "O"]
-        target_strings.append(' '.join(target_string))
-    
-    pred_strings = []
-    for i in range(len(eval_df)):
-        i_preds = preds_df[preds_df.eval_row == i]
-        if len(i_preds) > 0:
-            pred_string = [f'{t}: {l}' for t,l in zip(i_preds.token_str, i_preds.label)]
-        else: 
-            pred_string = []
-        pred_strings.append(' '.join(pred_string))
-    
-    eval_df['target_string'] = target_strings
-    eval_df['pred_string'] = pred_strings
-    eval_df['error'] = eval_df['target_string'] != eval_df['pred_string']
-    return eval_df[eval_df.error == True]
 
 def get_error_row_ids(valid_df, pred_df):
     doc_to_label_map_valid = dict()
