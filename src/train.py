@@ -439,7 +439,7 @@ def main(cfg: DictConfig):
             "tokens": [x["tokens"] for x in data],
             "trailing_whitespace": [x["trailing_whitespace"] for x in data],
             "provided_labels": [x["labels"] for x in data],
-            "fold": [x["document"] % 4 for x in data]
+            "fold": [fold if x["valid"] else fold + 1 for x in data]
         })
 
         if cfg.use_external_data:
