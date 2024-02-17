@@ -573,6 +573,7 @@ def main(cfg: DictConfig):
             train_loss = train(epoch, model, train_loader, optimizer, scheduler, cfg.device, scaler)
             preds, valid_loss = evaluate(epoch, model, valid_loader, cfg.device)
             threshold_f5 = []
+            print("Postprocessing predictions for validation...")
             preds = get_processed_preds(preds, valid_ds)
 
             print("Validating for various thresholds...")
