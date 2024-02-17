@@ -166,7 +166,7 @@ def postprocess_labels(predictions, token_idxs_mapping = None, threshold = 0.9):
         averaged_predictions = np.zeros_like(predictions)
         
         # Iterate over each unique token index to average predictions
-        for token_idx in set(token_idxs_mapping):
+        for token_idx in set(token_idxs_mapping).difference(set([-1])):
             # Find the indices in token_idxs_mapping that match the current token_idx
             indices = [i for i, x in enumerate(token_idxs_mapping) if x == token_idx]
             
