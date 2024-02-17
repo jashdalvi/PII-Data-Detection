@@ -149,7 +149,7 @@ def main(cfg: DictConfig):
 
         softmax_preds = preds.copy()
         
-        preds = [postprocess_labels(p, threshold=threshold) for p in preds]
+        preds = [postprocess_labels(p, token_idxs_mapping, threshold=threshold) for p, token_idxs_mapping in zip(preds, ds["token_idxs_mapping"])]
 
         for i, (p, token_map, offsets, tokens, doc) in enumerate(zip(preds, ds["token_map"], ds["offset_mapping"], ds["tokens"], ds["document"])):
 
@@ -245,10 +245,12 @@ def main(cfg: DictConfig):
         
         text = "".join(text)
         token_labels = []
+        token_idxs_mapping = [] # Represents the mapping of deberta token idx to spacy token idx. We can potentially merge the predictions of these tokens
         num_sequences = len(tokenized["input_ids"])
         for sequence_idx in range(num_sequences):
             offset_mapping_sequence = tokenized["offset_mapping"][sequence_idx]
             token_labels_sequence = []
+            token_idxs_mapping_sequence = []
             for start_idx, end_idx in offset_mapping_sequence:
                 
                 # CLS token
@@ -264,8 +266,10 @@ def main(cfg: DictConfig):
                     start_idx -= 1
                     
                 token_labels_sequence.append(label2id[labels[start_idx]])
+                token_idxs_mapping_sequence.append(token_map[start_idx])
             
             token_labels.append(token_labels_sequence)
+            token_idxs_mapping.append(token_idxs_mapping_sequence)
         #preds, ds["token_map"], ds["offset_mapping"], ds["tokens"], ds["document"]
         token_map = [token_map for _ in range(num_sequences)]
         document = [example["document"] for _ in range(num_sequences)]
@@ -278,7 +282,8 @@ def main(cfg: DictConfig):
             "token_map": token_map,
             "document": document,
             "fold": fold,
-            "tokens": tokens
+            "tokens": tokens,
+            "token_idxs_mapping": token_idxs_mapping
         }
 
     class Model(nn.Module):

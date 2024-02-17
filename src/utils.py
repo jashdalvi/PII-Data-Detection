@@ -160,7 +160,21 @@ def get_rgba(color_name, opacity):
     rgb = named_color_to_rgb[color_name]  # Get the RGB values for the named color
     return f'rgba({rgb[0]}, {rgb[1]}, {rgb[2]}, {opacity})'
 
-def postprocess_labels(predictions, threshold = 0.9):
+def postprocess_labels(predictions, token_idxs_mapping = None, threshold = 0.9):
+    if token_idxs_mapping is not None:
+        # Initialize averaged_predictions with the same shape as predictions
+        averaged_predictions = np.zeros_like(predictions)
+        
+        # Iterate over each unique token index to average predictions
+        for token_idx in set(token_idxs_mapping):
+            # Find the indices in token_idxs_mapping that match the current token_idx
+            indices = [i for i, x in enumerate(token_idxs_mapping) if x == token_idx]
+            
+            # Average the predictions for these indices and assign to the correct positions
+            averaged_predictions[indices] = np.mean(predictions[indices], axis=0)
+        
+        # Use the averaged predictions for further processing
+        predictions = averaged_predictions
     preds = predictions.argmax(-1)
     preds_without_O = predictions[:,:12].argmax(-1)
     O_preds = predictions[:,12]
