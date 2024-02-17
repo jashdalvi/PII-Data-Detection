@@ -113,12 +113,26 @@ def main(cfg: DictConfig):
         """Compute softmax values for each sets of scores in x."""
         e_x = np.exp(x - np.max(x, axis = -1, keepdims = True))
         return e_x / e_x.sum(axis=-1, keepdims=True)
-
-    def generate_pred_df(preds, ds, threshold=0.9):
-        id2label = {i: label for i, label in enumerate(LABELS)}
-        triplets = set()
-        row, document, token, label, token_str = [], [], [], [], []
-        #TODO: This is wrong. This is actually merging the labels and not the predictions LOL. Need to figure out a better way to do this
+    
+    def get_merged_preds(predictions, token_idxs_mapping):
+        if token_idxs_mapping is not None:
+            # Initialize averaged_predictions with the same shape as predictions
+            averaged_predictions = np.zeros_like(predictions)
+            
+            # Iterate over each unique token index to average predictions
+            for token_idx in set(token_idxs_mapping).difference(set([-1])):
+                # Find the indices in token_idxs_mapping that match the current token_idx
+                indices = np.where(np.array(token_idxs_mapping) == token_idx)[0]
+                
+                # Average the predictions for these indices and assign to the correct positions
+                averaged_predictions[indices] = np.mean(predictions[indices], axis=0)
+            
+            # Use the averaged predictions for further processing
+            predictions = averaged_predictions
+        
+        return predictions
+    
+    def get_processed_preds(preds, ds):
         if cfg.stride > 0:
             # Average the predictions of overlapping tokens
             groupby_preds = OrderedDict()
@@ -147,9 +161,16 @@ def main(cfg: DictConfig):
         else:
             preds = [softmax(p) for p in preds]
 
+        preds = [get_merged_preds(p, token_idxs_mapping) for p, token_idxs_mapping in zip(preds, ds["token_idxs_mapping"])]
+
+        return preds
+
+    def generate_pred_df(preds, ds, threshold=0.9):
+        id2label = {i: label for i, label in enumerate(LABELS)}
+        triplets = set()
+        row, document, token, label, token_str = [], [], [], [], []
         softmax_preds = preds.copy()
-        
-        preds = [postprocess_labels(p, token_idxs_mapping, threshold=threshold) for p, token_idxs_mapping in zip(preds, ds["token_idxs_mapping"])]
+        preds = [postprocess_labels(p, None, threshold=threshold) for p, token_idxs_mapping in zip(preds, ds["token_idxs_mapping"])]
 
         for i, (p, token_map, offsets, tokens, doc) in enumerate(zip(preds, ds["token_map"], ds["offset_mapping"], ds["tokens"], ds["document"])):
 
@@ -552,6 +573,7 @@ def main(cfg: DictConfig):
             train_loss = train(epoch, model, train_loader, optimizer, scheduler, cfg.device, scaler)
             preds, valid_loss = evaluate(epoch, model, valid_loader, cfg.device)
             threshold_f5 = []
+            preds = get_processed_preds(preds, valid_ds)
 
             print("Validating for various thresholds...")
             for threshold in thresholds_to_validate:
