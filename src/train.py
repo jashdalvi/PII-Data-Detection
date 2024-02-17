@@ -114,7 +114,7 @@ def main(cfg: DictConfig):
         e_x = np.exp(x - np.max(x))
         return e_x / e_x.sum(axis=-1, keepdims=True)
 
-    def generate_pred_df(preds, ds):
+    def generate_pred_df(preds, ds, threshold=0.9):
         id2label = {i: label for i, label in enumerate(LABELS)}
         triplets = set()
         row, document, token, label, token_str = [], [], [], [], []
@@ -144,7 +144,7 @@ def main(cfg: DictConfig):
 
         softmax_preds = preds.copy()
         
-        preds = [postprocess_labels(p, threshold=cfg.threshold) for p in preds]
+        preds = [postprocess_labels(p, threshold=threshold) for p in preds]
 
         for i, (p, token_map, offsets, tokens, doc) in enumerate(zip(preds, ds["token_map"], ds["offset_mapping"], ds["tokens"], ds["document"])):
 
@@ -486,6 +486,7 @@ def main(cfg: DictConfig):
         best_score = 0
         best_pred_df = None
         best_softmax_preds = None
+        thresholds_to_validate = [0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.97, 0.99]
         # Seed everything
         seed_everything(seed=cfg.seed)
         if cfg.use_wandb:
@@ -539,6 +540,14 @@ def main(cfg: DictConfig):
             print(f"Training FOLD : {fold}, EPOCH: {epoch + 1}")
             train_loss = train(epoch, model, train_loader, optimizer, scheduler, cfg.device, scaler)
             preds, valid_loss = evaluate(epoch, model, valid_loader, cfg.device)
+            threshold_f5 = []
+
+            print("Validating for various thresholds...")
+            for threshold in thresholds_to_validate:
+                pred_df, softmax_preds = generate_pred_df(preds, valid_ds, threshold=threshold)
+                eval_dict = compute_metrics(pred_df, valid_reference_df)
+                threshold_f5.append(eval_dict['ents_f5'])
+                print(f"Threshold: {threshold}, Validation f5 score: {eval_dict['ents_f5']}")
             pred_df, softmax_preds = generate_pred_df(preds, valid_ds)
             eval_dict = compute_metrics(pred_df, valid_reference_df)
             print(f"\nValidation f5 score: {eval_dict['ents_f5']}")
@@ -546,6 +555,7 @@ def main(cfg: DictConfig):
                 wandb.log({"valid/train_loss_avg": train_loss, 
                         "valid/valid_loss_avg": valid_loss, 
                         "valid/f5": eval_dict['ents_f5'],
+                        **({f"valid/f5_{threshold}": f5 for threshold, f5 in zip(thresholds_to_validate, threshold_f5)}),
                         "valid/step": epoch})
 
             if eval_dict['ents_f5'] > best_score:

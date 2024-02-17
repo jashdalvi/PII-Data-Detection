@@ -3,20 +3,20 @@ hydra:
     chdir: False
 
 batch_size: 8
-valid_batch_size: 8
-epochs: 1
+valid_batch_size: 16
+epochs: 3
 num_workers: 2
 lr: 2e-5
 max_length: 512
-stride: 0
-model_name: "microsoft/deberta-v3-base"
+stride: 128
+model_name: "microsoft/deberta-v3-large"
 hidden_dropout_prob: 0.1
 layer_norm_eps: 1e-7
 gradient_accumulation_steps: 2
 gradient_checkpointing_enable: False
 warmup_ratio: 0.1
 max_grad_norm: 10.0
-weight_decay: 0.01
+weight_decay: 0.001
 seed: 42
 device: "cuda"
 multi_gpu: False
@@ -34,4 +34,4 @@ use_external_data: True
 train_fold: True
 train_whole_dataset: False
 visualize: True
-upload_models: False
+upload_models: True
