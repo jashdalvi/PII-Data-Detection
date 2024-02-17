@@ -255,6 +255,7 @@ def main(cfg: DictConfig):
                 
                 # CLS token
                 if start_idx == 0 and end_idx == 0: 
+                    token_idxs_mapping_sequence.append(-1)
                     token_labels_sequence.append(label2id["O"])
                     continue
                 
