@@ -1,0 +1,21 @@
+resources:
+  # Optional; if left out, automatically pick the cheapest cloud.
+  cloud: runpod
+  # 1x NVIDIA V100 GPU
+  accelerators: A5000:1
+
+# Working directory (optional) containing the project codebase.
+# Its contents are synced to ~/sky_workdir/ on the cluster.
+workdir: .
+
+# Typical use: pip install -r requirements.txt
+# Invoked under the workdir (i.e., can use its files).
+setup: |
+  sh setup.sh
+
+# Typical use: make use of resources, such as running training.
+# Invoked under the workdir (i.e., can use its files).
+run: |
+  tmux
+  cd src
+  python train.py
