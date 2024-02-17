@@ -111,7 +111,7 @@ def main(cfg: DictConfig):
     
     def softmax(x):
         """Compute softmax values for each sets of scores in x."""
-        e_x = np.exp(x - np.max(x))
+        e_x = np.exp(x - np.max(x, axis = -1, keepdims = True))
         return e_x / e_x.sum(axis=-1, keepdims=True)
 
     def generate_pred_df(preds, ds, threshold=0.9):
@@ -129,14 +129,19 @@ def main(cfg: DictConfig):
             merged_preds = []
             for doc in groupby_preds:
                 doc_preds = groupby_preds[doc]
-                for i in range(len(doc_preds) - 1):
-                    total_stride = cfg.stride + 1 # Add extra token for special tokens
-                    mean_preds = ((np.array(doc_preds[i][-total_stride :]) + np.array(doc_preds[i+1][:total_stride])) / 2).tolist()
-                    doc_preds[i][-total_stride:] = mean_preds
-                    doc_preds[i+1][:total_stride] = mean_preds
-                    merged_preds.append(doc_preds[i])
-                
-                merged_preds.append(doc_preds[-1])
+                if len(doc_preds) > 1:
+                    for i in range(len(doc_preds) - 1):
+                        total_stride = cfg.stride + 1  # Add extra token for special tokens
+                        # Calculate the mean for the overlapping predictions
+                        mean_preds = (np.array(doc_preds[i][-total_stride:]) + np.array(doc_preds[i + 1][:total_stride])) / 2
+                        # Update the current and next predictions with the averaged values
+                        doc_preds[i][-total_stride:] = mean_preds.tolist()
+                        doc_preds[i + 1][:total_stride] = mean_preds.tolist()
+                    # After processing all overlaps, append all modified predictions
+                    merged_preds.extend(doc_preds)
+                else:
+                    # If there's only one set of predictions, append it directly
+                    merged_preds.extend(doc_preds)
             
             preds = merged_preds.copy()
         else:
@@ -166,7 +171,7 @@ def main(cfg: DictConfig):
 
                 # ignore "O" predictions and whitespace preds
                 if label_pred != "O" and token_id != -1:
-                    triplet = (label_pred, token_id, tokens[token_id])
+                    triplet = (doc, token_id, tokens[token_id])
 
                     if triplet not in triplets:
                         row.append(i)
@@ -439,7 +444,7 @@ def main(cfg: DictConfig):
             "tokens": [x["tokens"] for x in data],
             "trailing_whitespace": [x["trailing_whitespace"] for x in data],
             "provided_labels": [x["labels"] for x in data],
-            "fold": [fold if x["valid"] else fold + 1 for x in data]
+            "fold": [x["document"] % 4 for x in data]
         })
 
         if cfg.use_external_data:
