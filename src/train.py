@@ -692,15 +692,17 @@ def main(cfg: DictConfig):
     for fold in range(1):
         fold_score = main_fold(fold, train_ds, valid_ds, tokenizer, valid_reference_df)
         fold_scores.append(fold_score)
+
+    cv = np.mean(fold_scores)
+    print(f"CV SCORE: {cv:.4f}")
+
+    if cv > 0.9625:
+        cfg.train_whole_dataset = True
     
     if cfg.train_whole_dataset:
         for seed in [41,42]:
             cfg.seed = seed
             train_whole_dataset(ds, tokenizer)
-
-
-    cv = np.mean(fold_scores)
-    print(f"CV SCORE: {cv:.4f}")
 
     if cfg.upload_models:
         login(os.environ.get("HF_HUB_TOKEN"))
