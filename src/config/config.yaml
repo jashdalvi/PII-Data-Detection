@@ -19,7 +19,7 @@ max_grad_norm: 5.0
 weight_decay: 0.001
 seed: 42
 device: "cuda"
-multi_gpu: False
+multi_gpu: True
 use_wandb: True
 project_name: "pii-kaggle"
 metadata_path: "../data/pii_texts.csv"
