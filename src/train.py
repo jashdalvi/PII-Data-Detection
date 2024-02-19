@@ -325,7 +325,6 @@ def main(cfg: DictConfig):
 
             self.transformer = AutoModel.from_pretrained(self.model_name, config=config)
             self.dropout = nn.Dropout(cfg.hidden_dropout_prob)
-            self.lstm = nn.LSTM(config.hidden_size, config.hidden_size//2, batch_first=True, bidirectional=True)
             self.linear = nn.Linear(config.hidden_size, len(LABELS))
 
             if cfg.gradient_checkpointing_enable:
@@ -354,8 +353,7 @@ def main(cfg: DictConfig):
 
         def forward(self, input_ids, attention_mask):
             outputs = self.transformer(input_ids=input_ids, attention_mask=attention_mask)
-            outputs, (_, _) = self.lstm(self.dropout(outputs.last_hidden_state))
-            logits = self.linear(outputs)
+            logits = self.linear(self.dropout(outputs.last_hidden_state))
             return logits
 
     def criterion(outputs, targets):
