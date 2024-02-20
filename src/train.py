@@ -192,7 +192,7 @@ def main(cfg: DictConfig):
 
                 # ignore "O" predictions and whitespace preds
                 if label_pred != "O" and token_id != -1:
-                    triplet = (doc, token_id, tokens[token_id])
+                    triplet = (doc, token_id)
 
                     if triplet not in triplets:
                         row.append(i)
