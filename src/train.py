@@ -324,7 +324,7 @@ def main(cfg: DictConfig):
             })
 
             self.transformer = AutoModel.from_pretrained(self.model_name, config=config)
-            self.dropout = nn.Dropout(cfg.hidden_dropout_prob)
+            # self.dropout = nn.Dropout(cfg.hidden_dropout_prob)
             self.linear = nn.Linear(config.hidden_size, len(LABELS))
 
             if cfg.gradient_checkpointing_enable:
@@ -353,7 +353,8 @@ def main(cfg: DictConfig):
 
         def forward(self, input_ids, attention_mask):
             outputs = self.transformer(input_ids=input_ids, attention_mask=attention_mask)
-            logits = self.linear(self.dropout(outputs.last_hidden_state))
+            # logits = self.linear(self.dropout(outputs.last_hidden_state))
+            logits = self.linear(outputs.last_hidden_state)
             return logits
 
     def criterion(outputs, targets):
@@ -500,6 +501,9 @@ def main(cfg: DictConfig):
 
         tokenizer = AutoTokenizer.from_pretrained(cfg.model_name)
 
+        if cfg.add_new_line_token:
+            tokenizer.add_tokens(AddedToken("\n", normalized=False))
+
         ds = ds.map(
             tokenize, 
             fn_kwargs={"tokenizer": tokenizer, "label2id": label2id, "max_length": cfg.max_length}, 
@@ -551,8 +555,8 @@ def main(cfg: DictConfig):
         )
 
         model = Model()
-        # Do not resize the token embeddings
-        # model.transformer.resize_token_embeddings(len(tokenizer))
+        if cfg.add_new_line_token:
+            model.transformer.resize_token_embeddings(len(tokenizer))
         model.to(cfg.device)
 
         if cfg.multi_gpu:
@@ -636,10 +640,6 @@ def main(cfg: DictConfig):
             wandb.define_metric("train/*", step_metric="train/step")
             wandb.define_metric("valid/*", step_metric="valid/step")
 
-        # lots of newlines in the text
-        # adding this should be helpful
-        # tokenizer.add_tokens(AddedToken("\n", normalized=False))
-
         collator = Collate(tokenizer)
 
         train_loader = torch.utils.data.DataLoader(
@@ -651,8 +651,9 @@ def main(cfg: DictConfig):
         )
 
         model = Model()
-        # Do not resize the token embeddings
-        # model.transformer.resize_token_embeddings(len(tokenizer))
+        # Add new line tokens if mentioned in the config
+        if cfg.add_new_line_token:
+            model.transformer.resize_token_embeddings(len(tokenizer))
         model.to(cfg.device)
 
         if cfg.multi_gpu:
@@ -696,7 +697,7 @@ def main(cfg: DictConfig):
     cv = np.mean(fold_scores)
     print(f"CV SCORE: {cv:.4f}")
 
-    if cv > 0.9625:
+    if cv > 0.96:
         cfg.train_whole_dataset = True
     
     if cfg.train_whole_dataset:
