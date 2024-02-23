@@ -161,7 +161,7 @@ def main(cfg: DictConfig):
         else:
             preds = [softmax(p) for p in preds]
 
-        preds = [get_merged_preds(p, token_idxs_mapping) for p, token_idxs_mapping in zip(preds, ds["token_idxs_mapping"])]
+        preds = [get_merged_preds(p, token_idxs_mapping if cfg.merge_token_preds else None) for p, token_idxs_mapping in zip(preds, ds["token_idxs_mapping"])]
 
         return preds
 
@@ -689,16 +689,17 @@ def main(cfg: DictConfig):
         torch.cuda.empty_cache()
 
     fold_scores = []
-    train_ds, valid_ds, ds, valid_reference_df, tokenizer = prepare_data()
-    for fold in range(1):
+    num_folds = min(max(cfg.num_folds, 0), 4)
+    if num_folds == 1:
+        train_ds, valid_ds, ds, valid_reference_df, tokenizer = prepare_data()
+    for fold in range(num_folds):
+        if num_folds > 1:
+            train_ds, valid_ds, ds, valid_reference_df, tokenizer = prepare_data(fold)
         fold_score = main_fold(fold, train_ds, valid_ds, tokenizer, valid_reference_df)
         fold_scores.append(fold_score)
 
     cv = np.mean(fold_scores)
     print(f"CV SCORE: {cv:.4f}")
-
-    if cv > 0.96:
-        cfg.train_whole_dataset = True
     
     if cfg.train_whole_dataset:
         for seed in [41,42]:
