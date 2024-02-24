@@ -461,20 +461,20 @@ def main(cfg: DictConfig):
                 ds = concatenate_datasets([ds, external_ds])
 
 
-            valid_reference_df = generate_gt_df(ds.filter(lambda x: x["fold"] == fold, num_proc=4))
+            valid_reference_df = generate_gt_df(ds.filter(lambda x: x["fold"] == fold, num_proc=2))
 
             label2id = {label: i for i, label in enumerate(LABELS)}
 
             ds = ds.map(
                 tokenize, 
                 fn_kwargs={"tokenizer": tokenizer, "label2id": label2id, "max_length": cfg.max_length},
-                num_proc=4
+                num_proc=2
             ).remove_columns(["full_text", "trailing_whitespace", "provided_labels"])
 
             ds = build_flatten_ds(ds)
 
-            train_ds = ds.filter(lambda x: x["fold"] != fold, num_proc=4)
-            valid_ds = ds.filter(lambda x: x["fold"] == fold, num_proc=4)
+            train_ds = ds.filter(lambda x: x["fold"] != fold, num_proc=2)
+            valid_ds = ds.filter(lambda x: x["fold"] == fold, num_proc=2)
 
         return train_ds, valid_ds, ds, valid_reference_df, tokenizer
     
