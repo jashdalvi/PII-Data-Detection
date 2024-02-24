@@ -25,7 +25,7 @@ import warnings
 from huggingface_hub import HfApi, login, create_repo
 import subprocess
 import shutil
-from utils import postprocess_labels, get_error_row_ids, generate_visualization_df, WandbTracker
+from utils import postprocess_labels, get_error_row_ids, generate_visualization_df
 import spacy
 from collections import OrderedDict
 from accelerate import Accelerator
@@ -489,7 +489,7 @@ def main(cfg: DictConfig):
         accelerator.init_trackers(project_name = cfg.project_name, config = dict(cfg), init_kwargs = {"wandb": {"group": cfg.model_name, "reinit": True}})
 
         wandb_tracker = accelerator.get_tracker("wandb", unwrap=True)
-        with accelerator.on_main_process:
+        if accelerator.is_main_process:
             wandb_tracker.define_metric("train/step")
             wandb_tracker.define_metric("valid/step")
             # define which metrics will be plotted against it
@@ -541,16 +541,14 @@ def main(cfg: DictConfig):
                 eval_dict = compute_metrics(pred_df, valid_reference_df)
                 threshold_f5.append(eval_dict['ents_f5'])
                 accelerator.print(f"Threshold: {threshold}, Validation f5 score: {eval_dict['ents_f5']}")
-
-
-
+            
             f5_score = threshold_f5[threshold_to_idx_mapping[0.9]]
 
             accelerator.print(f"\nValidation f5 score: {f5_score:.4f}")
 
             accelerator.log({"valid/train_loss_avg": train_loss, 
                     "valid/valid_loss_avg": valid_loss, 
-                    "valid/f5": eval_dict['ents_f5'],
+                    "valid/f5": f5_score,
                     **({f"valid/f5_{threshold}": f5 for threshold, f5 in zip(thresholds_to_validate, threshold_f5)}),
                     "valid/step": epoch})
 
@@ -662,7 +660,7 @@ def main(cfg: DictConfig):
         fold_scores.append(fold_score)
 
     cv = np.mean(fold_scores)
-    print(f"CV SCORE: {cv:.4f}")
+    accelerator.print(f"CV SCORE: {cv:.4f}")
 
     if cfg.upload_models and accelerator.is_main_process:
         login(os.environ.get("HF_HUB_TOKEN"))
