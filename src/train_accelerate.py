@@ -465,7 +465,8 @@ def main(cfg: DictConfig):
 
             ds = ds.map(
                 tokenize, 
-                fn_kwargs={"tokenizer": tokenizer, "label2id": label2id, "max_length": cfg.max_length}
+                fn_kwargs={"tokenizer": tokenizer, "label2id": label2id, "max_length": cfg.max_length},
+                num_proc = 4
             ).remove_columns(["full_text", "trailing_whitespace", "provided_labels"])
 
             ds = build_flatten_ds(ds)
@@ -473,9 +474,9 @@ def main(cfg: DictConfig):
     
     def prepare_fold_data(accelerator, ds, original_ds, fold):
         with accelerator.main_process_first():
-            valid_reference_df = generate_gt_df(original_ds.filter(lambda x: x["fold"] == fold))
-            train_ds = ds.filter(lambda x: x["fold"] != fold)
-            valid_ds = ds.filter(lambda x: x["fold"] == fold)
+            valid_reference_df = generate_gt_df(original_ds.filter(lambda x: x["fold"] == fold, num_proc = 4))
+            train_ds = ds.filter(lambda x: x["fold"] != fold, num_proc = 4)
+            valid_ds = ds.filter(lambda x: x["fold"] == fold, num_proc = 4)
 
         return train_ds, valid_ds, valid_reference_df
     
