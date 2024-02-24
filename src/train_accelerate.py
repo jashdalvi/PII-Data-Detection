@@ -484,6 +484,7 @@ def main(cfg: DictConfig):
         best_pred_df = None
         thresholds_to_validate = [0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.97, 0.99]
         threshold_to_idx_mapping = {threshold: idx for idx, threshold in enumerate(thresholds_to_validate)}
+        accelerator.print(threshold_to_idx_mapping)
         # Seed everything
         seed_everything(seed=cfg.seed)
         accelerator.init_trackers(project_name = cfg.project_name, config = dict(cfg), init_kwargs = {"wandb": {"group": cfg.model_name, "reinit": True}})
@@ -542,7 +543,7 @@ def main(cfg: DictConfig):
                 threshold_f5.append(eval_dict['ents_f5'])
                 accelerator.print(f"Threshold: {threshold}, Validation f5 score: {eval_dict['ents_f5']}")
             
-            f5_score = threshold_f5[threshold_to_idx_mapping[int(cfg.threshold)]]
+            f5_score = threshold_f5[threshold_to_idx_mapping[float(cfg.threshold)]]
 
             accelerator.print(f"\nValidation f5 score: {f5_score:.4f}")
 
