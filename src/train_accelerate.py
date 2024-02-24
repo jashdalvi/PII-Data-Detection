@@ -571,7 +571,7 @@ def main(cfg: DictConfig):
             viz_df = viz_df[viz_df.document.isin(error_row_ids)][["document", "full_text"]]
             nlp = spacy.blank("en")
             viz_df = generate_visualization_df(viz_df, valid_reference_df, best_pred_df, nlp)
-            errors_table = wandb_tracker.Table(dataframe=viz_df)
+            errors_table = wandb.Table(dataframe=viz_df)
             if accelerator.is_main_process:
                 accelerator.log({'errors_table': errors_table})
         
