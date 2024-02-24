@@ -13,7 +13,6 @@ from spacy.tokens import Span
 from spacy import displacy
 import wandb
 
-
 class PRFScore:
     """A precision / recall / F score."""
 
