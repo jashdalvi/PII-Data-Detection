@@ -2,7 +2,7 @@ hydra:
   job:
     chdir: False
 
-batch_size: 16
+batch_size: 8
 valid_batch_size: 16
 epochs: 3
 num_workers: 2
