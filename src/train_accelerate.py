@@ -371,7 +371,7 @@ def main(cfg: DictConfig):
         model.train()
         losses = AverageMeter()
 
-        for batch_idx, (batch) in tqdm(enumerate(train_loader), total = len(train_loader)):   
+        for batch_idx, (batch) in tqdm(enumerate(train_loader), total = len(train_loader), disable=not accelerator.is_main_process):   
             labels = batch.pop("labels")
             
             with accelerator.accumulate(model):
@@ -406,7 +406,7 @@ def main(cfg: DictConfig):
         all_preds = []
         losses = AverageMeter()
 
-        for batch_idx, (batch) in tqdm(enumerate(valid_loader), total = len(valid_loader)):
+        for batch_idx, (batch) in tqdm(enumerate(valid_loader), total = len(valid_loader), disable=not accelerator.is_main_process):
             labels = batch.pop("labels")
             with torch.no_grad():
                 outputs = model(**batch)
