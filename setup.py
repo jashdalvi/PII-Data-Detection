@@ -12,6 +12,12 @@ zf = zipfile.ZipFile(zipFileName)
 zf.extractall(path=zipPath)
 zf.close()
 
+zipFileName = "/root/PII-Data-Detection/data/mixtral-original-prompt.zip"
+zipPath = "/root/PII-Data-Detection/data/"
+zf = zipfile.ZipFile(zipFileName)
+zf.extractall(path=zipPath)
+zf.close()
+
 import nltk
 import os
 from dotenv import load_dotenv

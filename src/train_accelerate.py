@@ -307,7 +307,6 @@ def main(cfg: DictConfig):
             })
 
             self.transformer = AutoModel.from_pretrained(self.model_name, config=config)
-            self.dropout = nn.Dropout(cfg.hidden_dropout_prob)
             self.linear = nn.Linear(config.hidden_size, len(LABELS))
 
             if cfg.gradient_checkpointing_enable:
@@ -336,7 +335,7 @@ def main(cfg: DictConfig):
 
         def forward(self, input_ids, attention_mask):
             outputs = self.transformer(input_ids=input_ids, attention_mask=attention_mask)
-            logits = self.linear(self.dropout(outputs.last_hidden_state))
+            logits = self.linear(outputs.last_hidden_state)
             return logits
 
     def criterion(outputs, targets):
@@ -421,7 +420,7 @@ def main(cfg: DictConfig):
 
         return all_preds, losses.avg
     
-    def prepare_data(accelerator, fold = 0):
+    def prepare_data(accelerator):
         with open("../data/train.json") as f:
             data = json.load(f)
 
@@ -460,23 +459,26 @@ def main(cfg: DictConfig):
                 assert ds.features.type == external_ds.features.type
                 ds = concatenate_datasets([ds, external_ds])
 
-
-            valid_reference_df = generate_gt_df(ds.filter(lambda x: x["fold"] == fold, num_proc=2))
+            original_ds = ds.copy()
 
             label2id = {label: i for i, label in enumerate(LABELS)}
 
             ds = ds.map(
                 tokenize, 
                 fn_kwargs={"tokenizer": tokenizer, "label2id": label2id, "max_length": cfg.max_length},
-                num_proc=2
+                num_proc=4
             ).remove_columns(["full_text", "trailing_whitespace", "provided_labels"])
 
             ds = build_flatten_ds(ds)
+        return ds, original_ds, tokenizer
+    
+    def prepare_fold_data(accelerator, ds, original_ds, fold):
+        with accelerator.main_process_first():
+            valid_reference_df = generate_gt_df(original_ds.filter(lambda x: x["fold"] == fold, num_proc=4))
+            train_ds = ds.filter(lambda x: x["fold"] != fold, num_proc=4)
+            valid_ds = ds.filter(lambda x: x["fold"] == fold, num_proc=4)
 
-            train_ds = ds.filter(lambda x: x["fold"] != fold, num_proc=2)
-            valid_ds = ds.filter(lambda x: x["fold"] == fold, num_proc=2)
-
-        return train_ds, valid_ds, ds, valid_reference_df, tokenizer
+        return train_ds, valid_ds, valid_reference_df
     
     def main_fold(accelerator, fold, train_ds, valid_ds, tokenizer, valid_reference_df):
         """Main loop"""
@@ -578,71 +580,7 @@ def main(cfg: DictConfig):
         accelerator.end_training()
         accelerator.free_memory()
         return best_score
-    
-    def train_whole_dataset(ds, tokenizer):
-        """Main loop"""
-        # Seed everything
-        seed_everything(seed=cfg.seed)
-        if cfg.use_wandb:
-            run = wandb.init(project=cfg.project_name, 
-                            config=dict(cfg), 
-                            group = cfg.model_name, 
-                            reinit=True)
-            wandb.define_metric("train/step")
-            wandb.define_metric("valid/step")
-            # define which metrics will be plotted against it
-            wandb.define_metric("train/*", step_metric="train/step")
-            wandb.define_metric("valid/*", step_metric="valid/step")
 
-        collator = Collate(tokenizer)
-
-        train_loader = torch.utils.data.DataLoader(
-            ds, 
-            batch_size=cfg.batch_size, 
-            shuffle=True, 
-            num_workers=cfg.num_workers,
-            collate_fn=collator
-        )
-
-        model = Model()
-        # Add new line tokens if mentioned in the config
-        if cfg.add_new_line_token:
-            model.transformer.resize_token_embeddings(len(tokenizer))
-        model.to(cfg.device)
-
-        if cfg.multi_gpu:
-            print("Using Multi-GPU Setup")
-            model = nn.DataParallel(model)
-        
-        num_train_steps = int(len(ds) / cfg.batch_size / cfg.gradient_accumulation_steps * cfg.epochs)
-
-        if cfg.multi_gpu:
-            optimizer, scheduler = get_optimizer_scheduler(model.module, num_train_steps)
-        else:
-            optimizer, scheduler = get_optimizer_scheduler(model, num_train_steps)
-
-        scaler = GradScaler()
-
-        for epoch in range(cfg.epochs):
-            print(f"Training FULL FOLD: EPOCH: {epoch + 1}")
-
-            train_loss = train(epoch, model, train_loader, optimizer, scheduler, cfg.device, scaler)
-            if cfg.use_wandb:
-                wandb.log({"valid/train_loss_avg": train_loss, 
-                        "valid/step": epoch})
-            
-            if cfg.multi_gpu:
-                torch.save(model.module.state_dict(), os.path.join(cfg.output_dir, f"{cfg.model_name.split(os.path.sep)[-1]}_full_fold_seed{cfg.seed}.bin"))
-            else:
-                torch.save(model.state_dict(), os.path.join(cfg.output_dir, f"{cfg.model_name.split(os.path.sep)[-1]}_full_fold_seed{cfg.seed}.bin"))
-        
-        
-        if cfg.use_wandb:
-            run.finish()
-        
-        torch.cuda.empty_cache()
-
-    
     wandb.login(key = os.environ['WANDB_API_KEY']) # Enter your API key here
     # Create the main accelerator object
     accelerator = Accelerator(mixed_precision="fp16", gradient_accumulation_steps=int(cfg.gradient_accumulation_steps), log_with = "wandb")
@@ -654,9 +592,10 @@ def main(cfg: DictConfig):
 
     fold_scores = []
     num_folds = min(max(cfg.num_folds, 0), 4)
+    ds, original_ds, tokenizer = prepare_data(accelerator)
     for fold in range(num_folds):
         # Prepare the data for the fold for training and eval
-        train_ds, valid_ds, ds, valid_reference_df, tokenizer = prepare_data(accelerator, fold)
+        train_ds, valid_ds, valid_reference_df = prepare_fold_data(accelerator, ds, original_ds, fold)
         fold_score = main_fold(accelerator, fold, train_ds, valid_ds, tokenizer, valid_reference_df)
         fold_scores.append(fold_score)
 
