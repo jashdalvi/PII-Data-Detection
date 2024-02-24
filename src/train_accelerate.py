@@ -574,8 +574,7 @@ def main(cfg: DictConfig):
             nlp = spacy.blank("en")
             viz_df = generate_visualization_df(viz_df, valid_reference_df, best_pred_df, nlp)
             errors_table = wandb.Table(dataframe=viz_df)
-            if accelerator.is_main_process:
-                accelerator.log({'errors_table': errors_table})
+            accelerator.log({'errors_table': errors_table})
         
         accelerator.end_training()
         accelerator.free_memory()
