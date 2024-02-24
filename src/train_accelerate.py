@@ -307,7 +307,7 @@ def main(cfg: DictConfig):
             })
 
             self.transformer = AutoModel.from_pretrained(self.model_name, config=config)
-            # self.dropout = nn.Dropout(cfg.hidden_dropout_prob)
+            self.dropout = nn.Dropout(cfg.hidden_dropout_prob)
             self.linear = nn.Linear(config.hidden_size, len(LABELS))
 
             if cfg.gradient_checkpointing_enable:
@@ -336,8 +336,7 @@ def main(cfg: DictConfig):
 
         def forward(self, input_ids, attention_mask):
             outputs = self.transformer(input_ids=input_ids, attention_mask=attention_mask)
-            # logits = self.linear(self.dropout(outputs.last_hidden_state))
-            logits = self.linear(outputs.last_hidden_state)
+            logits = self.linear(self.dropout(outputs.last_hidden_state))
             return logits
 
     def criterion(outputs, targets):
@@ -418,9 +417,7 @@ def main(cfg: DictConfig):
             losses.update(loss.item(), cfg.valid_batch_size)
 
             gathered_outputs = accelerator.gather_for_metrics(outputs)
-            # Reshaping it since it is Multi-GPU setup
-            gathered_outputs = gathered_outputs.view(-1, gathered_outputs.size(-1))
-            all_preds.extend([np.squeeze(output, 0) for output in np.split(gathered_outputs.detach().cpu().numpy(), len(outputs))])
+            all_preds.extend([np.squeeze(output, 0) for output in np.split(gathered_outputs.detach().cpu().numpy(), len(gathered_outputs))])
 
         return all_preds, losses.avg
     
@@ -545,7 +542,7 @@ def main(cfg: DictConfig):
                 threshold_f5.append(eval_dict['ents_f5'])
                 accelerator.print(f"Threshold: {threshold}, Validation f5 score: {eval_dict['ents_f5']}")
             
-            f5_score = threshold_f5[threshold_to_idx_mapping[0.9]]
+            f5_score = threshold_f5[threshold_to_idx_mapping[int(cfg.threshold)]]
 
             accelerator.print(f"\nValidation f5 score: {f5_score:.4f}")
 
