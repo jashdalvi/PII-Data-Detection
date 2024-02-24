@@ -451,7 +451,7 @@ def main(cfg: DictConfig):
                         "tokens": [x["tokens"] for x in external_data],
                         "trailing_whitespace": [x["trailing_whitespace"] for x in external_data],
                         "provided_labels": [x["labels"] for x in external_data],
-                        "fold": [fold + 1 for _ in external_data]
+                        "fold": [int(cfg.num_folds) for _ in external_data]
                     }
                 )
 
@@ -459,7 +459,7 @@ def main(cfg: DictConfig):
                 assert ds.features.type == external_ds.features.type
                 ds = concatenate_datasets([ds, external_ds])
 
-            original_ds = ds.copy()
+            original_ds = ds
 
             label2id = {label: i for i, label in enumerate(LABELS)}
 
