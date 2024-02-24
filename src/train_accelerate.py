@@ -566,7 +566,7 @@ def main(cfg: DictConfig):
                 if accelerator.is_main_process:
                     torch.save(unwrapped_model.state_dict(), save_path)
         # Prepare data to visualize errors and log them as a Weights & Biases table
-        print('Visualizing errors...')
+        accelerator.print('Visualizing errors...')
         if cfg.visualize:
             error_row_ids = get_error_row_ids(valid_reference_df, best_pred_df)
             viz_df = pd.read_json("../data/train.json")
