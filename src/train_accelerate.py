@@ -465,8 +465,7 @@ def main(cfg: DictConfig):
 
             ds = ds.map(
                 tokenize, 
-                fn_kwargs={"tokenizer": tokenizer, "label2id": label2id, "max_length": cfg.max_length},
-                num_proc=4
+                fn_kwargs={"tokenizer": tokenizer, "label2id": label2id, "max_length": cfg.max_length}
             ).remove_columns(["full_text", "trailing_whitespace", "provided_labels"])
 
             ds = build_flatten_ds(ds)
@@ -590,13 +589,11 @@ def main(cfg: DictConfig):
             os.makedirs(cfg.output_dir, exist_ok=True)
 
     fold_scores = []
-    num_folds = min(max(cfg.num_folds, 0), 4)
     ds, original_ds, tokenizer = prepare_data(accelerator)
-    for fold in range(num_folds):
-        # Prepare the data for the fold for training and eval
-        train_ds, valid_ds, valid_reference_df = prepare_fold_data(accelerator, ds, original_ds, fold)
-        fold_score = main_fold(accelerator, fold, train_ds, valid_ds, tokenizer, valid_reference_df)
-        fold_scores.append(fold_score)
+    # Prepare the data for the fold for training and eval
+    train_ds, valid_ds, valid_reference_df = prepare_fold_data(accelerator, ds, original_ds, cfg.fold)
+    fold_score = main_fold(accelerator, cfg.fold, train_ds, valid_ds, tokenizer, valid_reference_df)
+    fold_scores.append(fold_score)
 
     cv = np.mean(fold_scores)
     accelerator.print(f"CV SCORE: {cv:.4f}")

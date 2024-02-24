@@ -32,6 +32,7 @@ llrd: 1
 use_external_data: True
 train_fold: True
 num_folds: 4
+fold: 0
 train_whole_dataset: False
 visualize: True
 upload_models: True
