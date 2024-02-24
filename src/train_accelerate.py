@@ -418,6 +418,8 @@ def main(cfg: DictConfig):
             losses.update(loss.item(), cfg.valid_batch_size)
 
             gathered_outputs = accelerator.gather_for_metrics(outputs)
+            # Reshaping it since it is Multi-GPU setup
+            gathered_outputs = gathered_outputs.view(-1, gathered_outputs.size(-1))
             all_preds.extend([np.squeeze(output, 0) for output in np.split(gathered_outputs.detach().cpu().numpy(), len(outputs))])
 
         return all_preds, losses.avg
@@ -462,19 +464,20 @@ def main(cfg: DictConfig):
                 ds = concatenate_datasets([ds, external_ds])
 
 
-            valid_reference_df = generate_gt_df(ds.filter(lambda x: x["fold"] == fold))
+            valid_reference_df = generate_gt_df(ds.filter(lambda x: x["fold"] == fold, num_proc=4))
 
             label2id = {label: i for i, label in enumerate(LABELS)}
 
             ds = ds.map(
                 tokenize, 
-                fn_kwargs={"tokenizer": tokenizer, "label2id": label2id, "max_length": cfg.max_length}
+                fn_kwargs={"tokenizer": tokenizer, "label2id": label2id, "max_length": cfg.max_length},
+                num_proc=4
             ).remove_columns(["full_text", "trailing_whitespace", "provided_labels"])
 
             ds = build_flatten_ds(ds)
 
-            train_ds = ds.filter(lambda x: x["fold"] != fold)
-            valid_ds = ds.filter(lambda x: x["fold"] == fold)
+            train_ds = ds.filter(lambda x: x["fold"] != fold, num_proc=4)
+            valid_ds = ds.filter(lambda x: x["fold"] == fold, num_proc=4)
 
         return train_ds, valid_ds, ds, valid_reference_df, tokenizer
     
