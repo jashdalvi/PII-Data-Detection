@@ -441,8 +441,12 @@ def main(cfg: DictConfig):
             })
 
             if cfg.use_external_data:
-                with open("../data/mixtral-8x7b-v1.json") as f:
-                    external_data = json.load(f)
+                if cfg.external_data_name == "nb":
+                    with open("../data/mixtral-8x7b-v1.json") as f:
+                        external_data = json.load(f)
+                else:
+                    with open("../data/Fake_data_1850_218.json") as f:
+                        external_data = json.load(f)
 
                 external_ds = Dataset.from_dict(
                     {
@@ -589,17 +593,40 @@ def main(cfg: DictConfig):
         if not os.path.exists(cfg.output_dir):
             os.makedirs(cfg.output_dir, exist_ok=True)
 
-    fold_scores = []
     ds, original_ds, tokenizer = prepare_data(accelerator)
     # Prepare the data for the fold for training and eval
     train_ds, valid_ds, valid_reference_df = prepare_fold_data(accelerator, ds, original_ds, cfg.fold)
     fold_score = main_fold(accelerator, cfg.fold, train_ds, valid_ds, tokenizer, valid_reference_df)
-    fold_scores.append(fold_score)
+    accelerator.print(f"CV SCORE: {fold_score:.4f}")
 
-    cv = np.mean(fold_scores)
-    accelerator.print(f"CV SCORE: {cv:.4f}")
+    # Save the fold score to a json file
+    if accelerator.is_main_process:
+        try:
+            if not os.path.exists("../data/outputs.json"):
+                with open("../data/outputs.json", "w") as f:
+                    json.dump({f"fold_{cfg.fold}": fold_score}, f)
+            else:
+                with open("../data/outputs.json", "r") as f:
+                    outputs = json.load(f)
+                outputs[f"fold_{cfg.fold}"] = fold_score
+                with open("../data/outputs.json", "w") as f:
+                    json.dump(outputs, f)
+        except Exception as e:
+            accelerator.print(f"Error saving fold score: {e}")
 
     if cfg.upload_models and accelerator.is_main_process:
+        # Loading the fold scores
+        try:
+            with open("../data/outputs.json", "r") as f:
+                outputs = json.load(f)
+            # Calculating the CV score
+            cv = np.mean([float(v) for k, v in outputs.items()])
+        except Exception as e:
+            cv = fold_score
+            accelerator.print(f"Error calculating CV score: {e}")
+        
+        accelerator.print(f"CV SCORE: {cv:.4f}")
+
         login(os.environ.get("HF_HUB_TOKEN"))
         api = HfApi()
         cfg.repo_id = f"jashdalvi/pii-data-detection-{cfg.model_name.split(os.path.sep)[-1]}-cv-{cv:.5f}"
@@ -629,6 +656,9 @@ def main(cfg: DictConfig):
             json.dump(kaggle_dataset_metadata, f)
         # Uploading the dataset to kaggle
         subprocess.run(["kaggle", "datasets", "create", "-p", cfg.output_dir], check=True)
+
+        # Remove the CV score file
+        subprocess.run(["rm", "../data/outputs.json"], check=True)
 
         # Deleting the output directory to save some space
         shutil.rmtree(cfg.output_dir)
