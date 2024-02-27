@@ -201,8 +201,9 @@ def main(cfg: DictConfig):
     
 
     class Collate:
-        def __init__(self, tokenizer):
+        def __init__(self, tokenizer, train = False):
             self.tokenizer = tokenizer
+            self.train = train
 
         def __call__(self, batch):
             batch_len = max([len(sample["input_ids"]) for sample in batch])
@@ -210,7 +211,19 @@ def main(cfg: DictConfig):
             output = dict()
             output["input_ids"] = [sample["input_ids"] for sample in batch]
             output["attention_mask"] = [sample["attention_mask"] for sample in batch]
-            output["labels"] = [sample["labels"] for sample in batch]
+
+            if cfg.random_masking and self.train:
+                output_labels = []
+                for sample in batch:
+                    labels = sample["labels"]
+                    other_idxs = np.where(np.array(labels) == 12)[0]
+                    mask_idxs = np.random.choice(other_idxs, int(len(other_idxs) * cfg.masking_ratio), replace=False).tolist()
+                    for idx in mask_idxs:
+                        labels[idx] = -100
+                    output_labels.append(labels)
+                output["labels"] = output_labels
+            else:
+                output["labels"] = [sample["labels"] for sample in batch]
 
 
             output["input_ids"] = torch.tensor([input_ids + [self.tokenizer.pad_token_id] * (batch_len - len(input_ids)) for input_ids in output["input_ids"]])
@@ -503,21 +516,22 @@ def main(cfg: DictConfig):
             wandb_tracker.define_metric("train/*", step_metric="train/step")
             wandb_tracker.define_metric("valid/*", step_metric="valid/step")
 
-        collator = Collate(tokenizer)
+        train_collator = Collate(tokenizer, train = True)
+        valid_collator = Collate(tokenizer, train = False)
 
         train_loader = torch.utils.data.DataLoader(
             train_ds, 
             batch_size=cfg.batch_size, 
             shuffle=True, 
             num_workers=cfg.num_workers,
-            collate_fn=collator
+            collate_fn=train_collator
         )
         valid_loader = torch.utils.data.DataLoader(
             valid_ds, 
             batch_size=cfg.valid_batch_size, 
             shuffle=False, 
             num_workers=cfg.num_workers,
-            collate_fn=collator
+            collate_fn=valid_collator
         )
 
         model = Model()
@@ -538,6 +552,7 @@ def main(cfg: DictConfig):
             # Validation loop
             preds, valid_loss = evaluate(accelerator, epoch, model, valid_loader)
             threshold_f5 = []
+            pred_dfs_f5 = []
             accelerator.print("Postprocessing predictions for validation...")
             # Processing predictions for validation
             preds = get_processed_preds(preds, valid_ds)
@@ -547,9 +562,11 @@ def main(cfg: DictConfig):
                 pred_df, softmax_preds = generate_pred_df(preds, valid_ds, threshold=threshold)
                 eval_dict = compute_metrics(pred_df, valid_reference_df)
                 threshold_f5.append(eval_dict['ents_f5'])
+                pred_dfs_f5.append(pred_df)
                 accelerator.print(f"Threshold: {threshold}, Validation f5 score: {eval_dict['ents_f5']}")
             
             f5_score = threshold_f5[threshold_to_idx_mapping[float(cfg.threshold)]]
+            pred_df = pred_dfs_f5[threshold_to_idx_mapping[float(cfg.threshold)]]
 
             accelerator.print(f"\nValidation f5 score: {f5_score:.4f}")
 
@@ -579,6 +596,12 @@ def main(cfg: DictConfig):
             viz_df = generate_visualization_df(viz_df, valid_reference_df, best_pred_df, nlp)
             errors_table = wandb.Table(dataframe=viz_df)
             accelerator.log({'errors_table': errors_table})
+
+        # Saving the best dataframes
+
+        if accelerator.is_main_process:
+            best_pred_df.to_csv(os.path.join("../data", f"pred_df_fold_{fold}.csv"), index=False)
+            valid_reference_df.to_csv(os.path.join("../data", f"reference_df_fold_{fold}.csv"), index=False)
         
         accelerator.end_training()
         accelerator.free_memory()
@@ -615,15 +638,33 @@ def main(cfg: DictConfig):
             accelerator.print(f"Error saving fold score: {e}")
 
     if cfg.upload_models and accelerator.is_main_process:
-        # Loading the fold scores
+        
+        # Load the pred and reference dfs for calculating the CV score
         try:
+            pred_dfs = []
+            valid_reference_dfs = []
+            for oof_fold in range(cfg.num_folds):
+                pred_df = pd.read_csv(os.path.join("../data", f"pred_df_fold_{oof_fold}.csv"))
+                valid_reference_df = pd.read_csv(os.path.join("../data", f"reference_df_fold_{oof_fold}.csv"))
+                pred_dfs.append(pred_df)
+                valid_reference_dfs.append(valid_reference_df)
+            
+            pred_df = pd.concat(pred_dfs, ignore_index=True)
+            pred_df["row_id"] = list(range(len(pred_df)))
+            valid_reference_df = pd.concat(valid_reference_dfs, ignore_index=True)
+            eval_dict = compute_metrics(pred_df, valid_reference_df)
+            cv = eval_dict['ents_f5']
+        # Loading the fold scores
+        except Exception as e:
+            accelerator.print(f"Error caculating OOF score: {e}")
             with open("../data/outputs.json", "r") as f:
                 outputs = json.load(f)
             # Calculating the CV score
-            cv = np.mean([float(v) for k, v in outputs.items()])
-        except Exception as e:
-            cv = fold_score
-            accelerator.print(f"Error calculating CV score: {e}")
+            try:
+                cv = np.mean([float(v) for k, v in outputs.items()])
+            except Exception as e:
+                accelerator.print(f"Error calculating CV score: {e}")
+                cv = fold_score
         
         accelerator.print(f"CV SCORE: {cv:.4f}")
 
