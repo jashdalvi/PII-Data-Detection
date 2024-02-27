@@ -652,6 +652,7 @@ def main(cfg: DictConfig):
             pred_df = pd.concat(pred_dfs, ignore_index=True)
             pred_df["row_id"] = list(range(len(pred_df)))
             valid_reference_df = pd.concat(valid_reference_dfs, ignore_index=True)
+            accelerator.print("Calculating OOF score...")
             eval_dict = compute_metrics(pred_df, valid_reference_df)
             cv = eval_dict['ents_f5']
         # Loading the fold scores
