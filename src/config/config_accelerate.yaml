@@ -2,17 +2,17 @@ hydra:
   job:
     chdir: False
 
-batch_size: 2
-valid_batch_size: 4
+batch_size: 8
+valid_batch_size: 16
 epochs: 3
 num_workers: 2
 lr: 2e-5
-max_length: 1024
+max_length: 512
 stride: 0
 model_name: "microsoft/deberta-v3-large"
 hidden_dropout_prob: 0.1
 layer_norm_eps: 1e-7
-gradient_accumulation_steps: 4
+gradient_accumulation_steps: 2
 gradient_checkpointing_enable: False
 warmup_ratio: 0.1
 max_grad_norm: 10.0
@@ -26,10 +26,10 @@ repo_id: ""
 freeze: False
 start_freeze_layer: 0
 end_freeze_layer: 6
-threshold: 0.9
+threshold: 0.6
 llrd: 1
 use_external_data: True
-external_data_name: "nb"
+external_data_name: "mpware"
 random_masking: False # Whether to randomly mask 'O' tokens in the input
 masking_ratio: 0.4 # Probability of masking 'O' tokens in the input
 train_fold: True

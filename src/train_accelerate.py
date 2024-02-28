@@ -211,24 +211,23 @@ def main(cfg: DictConfig):
             output = dict()
             output["input_ids"] = [sample["input_ids"] for sample in batch]
             output["attention_mask"] = [sample["attention_mask"] for sample in batch]
+            output["labels"] = [sample["labels"] for sample in batch]
+
 
             if cfg.random_masking and self.train:
                 output_labels = []
                 for sample in batch:
-                    labels = sample["labels"]
+                    labels = sample["labels"].copy()  # Make a copy of the labels to avoid modifying the original list
                     other_idxs = np.where(np.array(labels) == 12)[0]
                     mask_idxs = np.random.choice(other_idxs, int(len(other_idxs) * cfg.masking_ratio), replace=False).tolist()
                     for idx in mask_idxs:
                         labels[idx] = -100
                     output_labels.append(labels)
                 output["labels"] = output_labels
-            else:
-                output["labels"] = [sample["labels"] for sample in batch]
-
-
-            output["input_ids"] = torch.tensor([input_ids + [self.tokenizer.pad_token_id] * (batch_len - len(input_ids)) for input_ids in output["input_ids"]])
-            output["attention_mask"] = torch.tensor([attention_mask + [0] * (batch_len - len(attention_mask)) for attention_mask in output["attention_mask"]])
-            output["labels"] = torch.tensor([labels + [-100] * (batch_len - len(labels)) for labels in output["labels"]])
+            
+            output["input_ids"] = [input_ids + [self.tokenizer.pad_token_id] * (batch_len - len(input_ids)) for input_ids in output["input_ids"]]
+            output["attention_mask"] = [attention_mask + [0] * (batch_len - len(attention_mask)) for attention_mask in output["attention_mask"]]
+            output["labels"] = [labels + [-100] * (batch_len - len(labels)) for labels in output["labels"]]
 
             output["input_ids"] = torch.tensor(output["input_ids"], dtype=torch.long)
             output["attention_mask"] = torch.tensor(output["attention_mask"], dtype=torch.long)
@@ -400,7 +399,7 @@ def main(cfg: DictConfig):
                 scheduler.step()
                 optimizer.zero_grad()
             
-            losses.update(loss.item(), cfg.batch_size)
+            losses.update(loss.item() * cfg.gradient_accumulation_steps, cfg.batch_size)
 
             
             accelerator.log({
@@ -423,8 +422,8 @@ def main(cfg: DictConfig):
             with torch.no_grad():
                 outputs = model(**batch)
             
-            with accelerator.autocast():
-                loss = criterion(outputs, labels)
+                with accelerator.autocast():
+                    loss = criterion(outputs, labels)
 
             losses.update(loss.item(), cfg.valid_batch_size)
 
@@ -455,9 +454,15 @@ def main(cfg: DictConfig):
 
             if cfg.use_external_data:
                 if cfg.external_data_name == "nb":
+                    accelerator.print("Using nb data")
                     with open("../data/mixtral-8x7b-v1.json") as f:
                         external_data = json.load(f)
+                elif cfg.external_data_name == "mpware":
+                    accelerator.print("Using mpware data")
+                    with open("../data/mpware_mixtral8x7b_v1.1-no-i-username.json") as f:
+                        external_data = json.load(f)
                 else:
+                    accelerator.print("Using fake data")
                     with open("../data/Fake_data_1850_218.json") as f:
                         external_data = json.load(f)
 
