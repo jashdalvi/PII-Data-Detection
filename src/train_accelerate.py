@@ -232,6 +232,8 @@ def main(cfg: DictConfig):
             output["input_ids"] = torch.tensor(output["input_ids"], dtype=torch.long)
             output["attention_mask"] = torch.tensor(output["attention_mask"], dtype=torch.long)
             output["labels"] = torch.tensor(output["labels"], dtype=torch.long)
+            if not self.train:
+                output["index"] = torch.tensor([sample["index"] for sample in batch], dtype=torch.long)
 
             return output
 
@@ -415,10 +417,12 @@ def main(cfg: DictConfig):
         """evaluate pass"""
         model.eval()
         all_preds = []
+        all_indexes = []
         losses = AverageMeter()
 
         for batch_idx, (batch) in tqdm(enumerate(valid_loader), total = len(valid_loader), disable=not accelerator.is_main_process):
             labels = batch.pop("labels")
+            idxs = batch.pop("index")
             with torch.no_grad():
                 outputs = model(**batch)
             
@@ -427,8 +431,11 @@ def main(cfg: DictConfig):
 
             losses.update(loss.item(), cfg.valid_batch_size)
 
-            gathered_outputs = accelerator.gather_for_metrics(outputs)
+            gathered_outputs, gathered_idxs = accelerator.gather_for_metrics(outputs, idxs)
+            all_indexes.extend([idx for idx in gathered_idxs.detach().cpu().numpy().tolist()])
             all_preds.extend([np.squeeze(output, 0) for output in np.split(gathered_outputs.detach().cpu().numpy(), len(gathered_outputs))])
+
+        all_preds = [all_preds[i] for i in np.argsort(all_indexes)]
 
         return all_preds, losses.avg
     
@@ -499,6 +506,7 @@ def main(cfg: DictConfig):
             valid_reference_df = generate_gt_df(original_ds.filter(lambda x: x["fold"] == fold, num_proc = 4))
             train_ds = ds.filter(lambda x: x["fold"] != fold, num_proc = 4)
             valid_ds = ds.filter(lambda x: x["fold"] == fold, num_proc = 4)
+            valid_ds["index"] = list(range(len(valid_ds)))
 
         return train_ds, valid_ds, valid_reference_df
     
