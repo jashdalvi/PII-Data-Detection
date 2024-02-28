@@ -399,7 +399,7 @@ def main(cfg: DictConfig):
                 scheduler.step()
                 optimizer.zero_grad()
             
-            losses.update(loss.item() * cfg.gradient_accumulation_steps, cfg.batch_size)
+            losses.update(loss.item(), cfg.batch_size)
 
             
             accelerator.log({
