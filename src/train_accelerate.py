@@ -506,7 +506,8 @@ def main(cfg: DictConfig):
             valid_reference_df = generate_gt_df(original_ds.filter(lambda x: x["fold"] == fold, num_proc = 4))
             train_ds = ds.filter(lambda x: x["fold"] != fold, num_proc = 4)
             valid_ds = ds.filter(lambda x: x["fold"] == fold, num_proc = 4)
-            valid_ds["index"] = list(range(len(valid_ds)))
+            # Adding an index to do distributed evaluation
+            valid_ds = valid_ds.map(lambda example, idx: {"index": idx}, with_indices=True)
 
         return train_ds, valid_ds, valid_reference_df
     
