@@ -415,14 +415,16 @@ def main(cfg: DictConfig):
 
     def evaluate(accelerator, epoch, model, valid_loader):
         """evaluate pass"""
+        model.to(accelerator.device)
         model.eval()
         all_preds = []
-        all_indexes = []
         losses = AverageMeter()
 
         for batch_idx, (batch) in tqdm(enumerate(valid_loader), total = len(valid_loader), disable=not accelerator.is_main_process):
+            for k, v in batch.items():
+                batch[k] = v.to(accelerator.device)
+
             labels = batch.pop("labels")
-            idxs = batch.pop("index")
             with torch.no_grad():
                 outputs = model(**batch)
             
@@ -430,12 +432,7 @@ def main(cfg: DictConfig):
                     loss = criterion(outputs, labels)
 
             losses.update(loss.item(), cfg.valid_batch_size)
-
-            gathered_outputs, gathered_idxs = accelerator.gather_for_metrics(outputs, idxs)
-            all_indexes.extend([idx for idx in gathered_idxs.detach().cpu().numpy().tolist()])
-            all_preds.extend([np.squeeze(output, 0) for output in np.split(gathered_outputs.detach().cpu().numpy(), len(gathered_outputs))])
-
-        all_preds = [all_preds[i] for i in np.argsort(all_indexes)]
+            all_preds.extend([np.squeeze(output, 0) for output in np.split(outputs.detach().cpu().numpy(), len(outputs))])
 
         return all_preds, losses.avg
     
@@ -506,8 +503,6 @@ def main(cfg: DictConfig):
             valid_reference_df = generate_gt_df(original_ds.filter(lambda x: x["fold"] == fold, num_proc = 4))
             train_ds = ds.filter(lambda x: x["fold"] != fold, num_proc = 4)
             valid_ds = ds.filter(lambda x: x["fold"] == fold, num_proc = 4)
-            # Adding an index to do distributed evaluation
-            valid_ds = valid_ds.map(lambda example, idx: {"index": idx}, with_indices=True, num_proc = 4)
 
         return train_ds, valid_ds, valid_reference_df
     
@@ -555,8 +550,8 @@ def main(cfg: DictConfig):
         num_train_steps = (len(train_loader) * cfg.epochs) // cfg.gradient_accumulation_steps
         optimizer, scheduler = get_optimizer_scheduler(model, num_train_steps)
 
-        model, optimizer, train_loader, valid_loader, scheduler = accelerator.prepare(
-            model, optimizer, train_loader, valid_loader, scheduler
+        model, optimizer, train_loader, scheduler = accelerator.prepare(
+            model, optimizer, train_loader, scheduler
         )
 
         for epoch in range(cfg.epochs):
