@@ -507,7 +507,7 @@ def main(cfg: DictConfig):
             train_ds = ds.filter(lambda x: x["fold"] != fold, num_proc = 4)
             valid_ds = ds.filter(lambda x: x["fold"] == fold, num_proc = 4)
             # Adding an index to do distributed evaluation
-            valid_ds = valid_ds.map(lambda example, idx: {"index": idx}, with_indices=True)
+            valid_ds = valid_ds.map(lambda example, idx: {"index": idx}, with_indices=True, num_proc = 4)
 
         return train_ds, valid_ds, valid_reference_df
     
