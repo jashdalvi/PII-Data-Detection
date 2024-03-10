@@ -153,7 +153,7 @@ def main(cfg: DictConfig):
         triplets = set()
         row, document, token, label, token_str = [], [], [], [], []
         softmax_preds = preds.copy()
-        preds = [postprocess_labels(p, None, threshold=threshold) for p, token_idxs_mapping in zip(preds, ds["token_idxs_mapping"])]
+        preds = [postprocess_labels(p, token_idxs_mapping if cfg.merge_token_preds else None, threshold=threshold) for p, token_idxs_mapping in zip(preds, ds["token_idxs_mapping"])]
 
         for i, (p, token_map, offsets, tokens, doc) in enumerate(zip(preds, ds["token_map"], ds["offset_mapping"], ds["tokens"], ds["document"])):
 
@@ -518,6 +518,7 @@ def main(cfg: DictConfig):
     def main_fold(accelerator, fold, train_ds, valid_ds, tokenizer, valid_reference_df):
         """Main loop"""
         best_score = 0
+        best_score_06 = 0
         best_pred_df = None
         thresholds_to_validate = [0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.97, 0.99]
         threshold_to_idx_mapping = {threshold: idx for idx, threshold in enumerate(thresholds_to_validate)}
@@ -585,6 +586,7 @@ def main(cfg: DictConfig):
             
             f5_score = threshold_f5[threshold_to_idx_mapping[float(cfg.threshold)]]
             pred_df = pred_dfs_f5[threshold_to_idx_mapping[float(cfg.threshold)]]
+            f5_score_06 = threshold_f5[threshold_to_idx_mapping[0.6]]
 
             accelerator.print(f"\nValidation f5 score: {f5_score:.4f}")
 
@@ -604,6 +606,17 @@ def main(cfg: DictConfig):
 
                 if accelerator.is_main_process:
                     torch.save(unwrapped_model.state_dict(), save_path)
+            
+            if f5_score_06 > best_score_06:
+                best_score_06 = f5_score_06
+
+                accelerator.wait_for_everyone()
+                unwrapped_model = accelerator.unwrap_model(model)
+                save_path = os.path.join(cfg.output_dir, f"{cfg.model_name.split(os.path.sep)[-1]}_fold{fold}_seed{cfg.seed}_threshold_06.bin")
+
+                if accelerator.is_main_process:
+                    torch.save(unwrapped_model.state_dict(), save_path)
+
         # Prepare data to visualize errors and log them as a Weights & Biases table
         accelerator.print('Visualizing errors...')
         if cfg.visualize:
