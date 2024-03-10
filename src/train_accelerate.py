@@ -232,7 +232,6 @@ def main(cfg: DictConfig):
             output["input_ids"] = torch.tensor(output["input_ids"], dtype=torch.long)
             output["attention_mask"] = torch.tensor(output["attention_mask"], dtype=torch.long)
             output["labels"] = torch.tensor(output["labels"], dtype=torch.long)
-
             return output
 
 
