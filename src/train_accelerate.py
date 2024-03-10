@@ -100,7 +100,7 @@ def main(cfg: DictConfig):
     def get_merged_preds(predictions, token_idxs_mapping):
         if token_idxs_mapping is not None:
             # Initialize averaged_predictions with the same shape as predictions
-            averaged_predictions = np.zeros_like(predictions)
+            averaged_predictions = np.array(predictions)
             
             # Iterate over each unique token index to average predictions
             for token_idx in set(token_idxs_mapping).difference(set([-1])):
@@ -153,7 +153,7 @@ def main(cfg: DictConfig):
         triplets = set()
         row, document, token, label, token_str = [], [], [], [], []
         softmax_preds = preds.copy()
-        preds = [postprocess_labels(p, token_idxs_mapping if cfg.merge_token_preds else None, threshold=threshold) for p, token_idxs_mapping in zip(preds, ds["token_idxs_mapping"])]
+        preds = [postprocess_labels(p, None, threshold=threshold) for p, token_idxs_mapping in zip(preds, ds["token_idxs_mapping"])]
 
         for i, (p, token_map, offsets, tokens, doc) in enumerate(zip(preds, ds["token_map"], ds["offset_mapping"], ds["tokens"], ds["document"])):
 
@@ -507,7 +507,7 @@ def main(cfg: DictConfig):
                 train_ds_not_O = train_ds.filter(lambda x: any([id2label[int(l)] != "O" for l in x["labels"]]), num_proc = 4)
                 train_ds_only_O = train_ds.filter(lambda x: all([id2label[int(l)] == "O" for l in x["labels"]]), num_proc = 4)
                 downsample_ds_size = int(len(train_ds_not_O) * cfg.downsample_ratio)
-                train_ds_only_O = train_ds_only_O.shuffle(seed=cfg.seed).select(range(downsample_ds_size), num_proc = 4)
+                train_ds_only_O = train_ds_only_O.shuffle(seed=cfg.seed).select(list(range(downsample_ds_size)))
                 train_ds = concatenate_datasets([train_ds_not_O, train_ds_only_O])
 
                 accelerator.print(f"Downsampled dataset size: {len(train_ds)}")

@@ -2,8 +2,8 @@ hydra:
   job:
     chdir: False
 
-batch_size: 4
-valid_batch_size: 8
+batch_size: 8
+valid_batch_size: 16
 epochs: 3
 num_workers: 2
 lr: 2e-5
@@ -40,5 +40,5 @@ visualize: True
 upload_models: True
 add_new_line_token: True
 merge_token_preds: True
-downsample_dataset: False
+downsample_dataset: True
 downsample_ratio: 0.4
