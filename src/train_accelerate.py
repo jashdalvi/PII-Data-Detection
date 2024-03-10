@@ -232,8 +232,6 @@ def main(cfg: DictConfig):
             output["input_ids"] = torch.tensor(output["input_ids"], dtype=torch.long)
             output["attention_mask"] = torch.tensor(output["attention_mask"], dtype=torch.long)
             output["labels"] = torch.tensor(output["labels"], dtype=torch.long)
-            if not self.train:
-                output["index"] = torch.tensor([sample["index"] for sample in batch], dtype=torch.long)
 
             return output
 
@@ -503,6 +501,17 @@ def main(cfg: DictConfig):
             valid_reference_df = generate_gt_df(original_ds.filter(lambda x: x["fold"] == fold, num_proc = 4))
             train_ds = ds.filter(lambda x: x["fold"] != fold, num_proc = 4)
             valid_ds = ds.filter(lambda x: x["fold"] == fold, num_proc = 4)
+
+            if cfg.downsample_dataset:
+                accelerator.print("Downsampling dataset...")
+                id2label = {i: label for i, label in enumerate(LABELS)}
+                train_ds_not_O = train_ds.filter(lambda x: any([id2label[int(l)] != "O" for l in x["labels"]]), num_proc = 4)
+                train_ds_only_O = train_ds.filter(lambda x: all([id2label[int(l)] == "O" for l in x["labels"]]), num_proc = 4)
+                downsample_ds_size = int(len(train_ds_not_O) * cfg.downsample_ratio)
+                train_ds_only_O = train_ds_only_O.shuffle(seed=cfg.seed).select(range(downsample_ds_size), num_proc = 4)
+                train_ds = concatenate_datasets([train_ds_not_O, train_ds_only_O])
+
+                accelerator.print(f"Downsampled dataset size: {len(train_ds)}")
 
         return train_ds, valid_ds, valid_reference_df
     

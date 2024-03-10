@@ -26,7 +26,7 @@ repo_id: ""
 freeze: False
 start_freeze_layer: 0
 end_freeze_layer: 6
-threshold: 0.6
+threshold: 0.9
 llrd: 1
 use_external_data: True
 external_data_name: "nb"
@@ -39,4 +39,6 @@ train_whole_dataset: False
 visualize: True
 upload_models: True
 add_new_line_token: True
-merge_token_preds: False
+merge_token_preds: True
+downsample_dataset: False
+downsample_ratio: 0.4
