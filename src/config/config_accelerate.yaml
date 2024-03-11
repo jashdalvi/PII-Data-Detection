@@ -42,3 +42,4 @@ add_new_line_token: True
 merge_token_preds: True
 downsample_dataset: False
 downsample_ratio: 0.4
+pooling: "lstm"

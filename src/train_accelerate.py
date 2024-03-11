@@ -29,6 +29,7 @@ from utils import postprocess_labels, get_error_row_ids, generate_visualization_
 import spacy
 from collections import OrderedDict
 from accelerate import Accelerator
+from modules import LSTMHead
 transformers.logging.set_verbosity_error()
 warnings.filterwarnings("ignore")
 
@@ -320,6 +321,9 @@ def main(cfg: DictConfig):
             self.transformer = AutoModel.from_pretrained(self.model_name, config=config)
             self.linear = nn.Linear(config.hidden_size, len(LABELS))
 
+            if cfg.pooling == "lstm":
+                self.lstm_head = LSTMHead(config.hidden_size, config.hidden_size // 2, n_layers = 1)
+
             if cfg.gradient_checkpointing_enable:
                 self.transformer.gradient_checkpointing_enable()
 
@@ -346,7 +350,12 @@ def main(cfg: DictConfig):
 
         def forward(self, input_ids, attention_mask):
             outputs = self.transformer(input_ids=input_ids, attention_mask=attention_mask)
-            logits = self.linear(outputs.last_hidden_state)
+
+            if cfg.pooling == "lstm":
+                sequence_output = self.lstm_head(outputs.last_hidden_state)
+                logits = self.linear(sequence_output)
+            else:
+                logits = self.linear(outputs.last_hidden_state)
             return logits
 
     def criterion(outputs, targets):
