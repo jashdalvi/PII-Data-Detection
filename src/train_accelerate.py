@@ -320,6 +320,7 @@ def main(cfg: DictConfig):
 
             self.transformer = AutoModel.from_pretrained(self.model_name, config=config)
             self.linear = nn.Linear(config.hidden_size, len(LABELS))
+            self.dropout = nn.Dropout(cfg.hidden_dropout_prob)
 
             if cfg.pooling == "lstm":
                 self.lstm_head = LSTMHead(config.hidden_size, config.hidden_size // 2, n_layers = 1)
@@ -355,7 +356,7 @@ def main(cfg: DictConfig):
                 sequence_output = self.lstm_head(outputs.last_hidden_state)
                 logits = self.linear(sequence_output)
             else:
-                logits = self.linear(outputs.last_hidden_state)
+                logits = self.linear(self.dropout(outputs.last_hidden_state))
             return logits
 
     def criterion(outputs, targets):
@@ -615,7 +616,7 @@ def main(cfg: DictConfig):
                 if accelerator.is_main_process:
                     torch.save(unwrapped_model.state_dict(), save_path)
             
-            if f5_score_06 > best_score_06:
+            if f5_score_06 > best_score_06 and cfg.save_other_threshold:
                 best_score_06 = f5_score_06
 
                 accelerator.wait_for_everyone()
