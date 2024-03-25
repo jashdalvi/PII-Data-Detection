@@ -2,7 +2,7 @@ hydra:
   job:
     chdir: False
 
-batch_size: 4
+batch_size: 2
 valid_batch_size: 4
 epochs: 3
 num_workers: 2
@@ -30,7 +30,7 @@ threshold: 0.9
 save_other_threshold: False
 llrd: 1
 use_external_data: True
-external_data_name: "nb"
+external_data_name: "mpware"
 random_masking: False # Whether to randomly mask 'O' tokens in the input
 masking_ratio: 0.4 # Probability of masking 'O' tokens in the input
 train_fold: True
