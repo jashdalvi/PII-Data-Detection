@@ -30,6 +30,7 @@ import spacy
 from collections import OrderedDict
 from accelerate import Accelerator
 from modules import LSTMHead
+from functools import partial
 transformers.logging.set_verbosity_error()
 warnings.filterwarnings("ignore")
 
@@ -51,6 +52,10 @@ LABELS = ['B-EMAIL',
         'I-STREET_ADDRESS',
         'I-URL_PERSONAL',
         'O']
+
+best_pred_df = None
+best_score = 0
+best_score_06 = 0
 
 @hydra.main(config_path="config", config_name="config_accelerate")
 def main(cfg: DictConfig):
@@ -255,7 +260,11 @@ def main(cfg: DictConfig):
             token_map_idx += 1
 
 
-        tokenized = tokenizer("".join(text), return_offsets_mapping=True, truncation = True, max_length=max_length, return_overflowing_tokens=True, stride = cfg.stride)
+        tokenized = tokenizer("".join(text), return_offsets_mapping=True, truncation = True, max_length=max_length, return_overflowing_tokens=cfg.return_overflowing_tokens, stride = cfg.stride)
+
+        if not cfg.return_overflowing_tokens:
+            for k, v in tokenized.items():
+                tokenized[k] = [v]
         
         labels = np.array(labels)
         
@@ -287,7 +296,7 @@ def main(cfg: DictConfig):
             
             token_labels.append(token_labels_sequence)
             token_idxs_mapping.append(token_idxs_mapping_sequence)
-        #preds, ds["token_map"], ds["offset_mapping"], ds["tokens"], ds["document"]
+        
         token_map = [token_map for _ in range(num_sequences)]
         document = [example["document"] for _ in range(num_sequences)]
         fold = [example["fold"] for _ in range(num_sequences)]
@@ -330,6 +339,10 @@ def main(cfg: DictConfig):
 
             if cfg.freeze:
                 self.freeze()
+
+            ## Initialize weights of the linear layer
+            if cfg.init_linear:
+                self.linear.apply(self._init_weights)
         
         def _init_weights(self, module):
             if isinstance(module, nn.Linear):
@@ -378,18 +391,33 @@ def main(cfg: DictConfig):
             }
         ]
         optimizer = torch.optim.AdamW(optimizer_params, lr=cfg.lr)
-        scheduler = get_cosine_schedule_with_warmup(
+        if cfg.scheduler == "cosine":
+            scheduler = get_cosine_schedule_with_warmup(
                 optimizer,
                 num_warmup_steps=int(num_train_steps * cfg.warmup_ratio),
                 num_training_steps=num_train_steps,
                 last_epoch=-1,
-        )
+            )
+        elif cfg.scheduler == "linear":
+            scheduler = get_linear_schedule_with_warmup(
+                optimizer,
+                num_warmup_steps=int(num_train_steps * cfg.warmup_ratio),
+                num_training_steps=num_train_steps,
+                last_epoch=-1,
+            )
+        else:
+            raise ValueError("Invalid scheduler")
         return optimizer, scheduler
     
-    def train(accelerator, epoch, model, train_loader, optimizer, scheduler):
+    def train(accelerator, epoch, model, train_loader, optimizer, scheduler, _validate):
         """training pass"""
         model.train()
         losses = AverageMeter()
+
+        ## Get the total idxs
+        total_idxs = len(train_loader)
+        eval_idxs = (np.linspace(0, total_idxs - 1, (1/cfg.eval_ratio) + 1)[1:]).tolist()
+        accelerator.print(f"Evaluating at idxs: {eval_idxs} Total idxs: {total_idxs}")
 
         for batch_idx, (batch) in tqdm(enumerate(train_loader), total = len(train_loader), disable=not accelerator.is_main_process):   
             labels = batch.pop("labels")
@@ -415,12 +443,14 @@ def main(cfg: DictConfig):
                 "train/loss": losses.val,
                 "train/lr": scheduler.get_last_lr()[0],
                 "train/step": epoch * len(train_loader) + batch_idx,
-
             })
+
+            if batch_idx in eval_idxs or batch_idx == len(train_loader) - 1:
+                _validate(model, losses.avg, epoch, cfg.fold)
         
         return losses.avg
 
-    def evaluate(accelerator, epoch, model, valid_loader):
+    def evaluate(accelerator, model, valid_loader):
         """evaluate pass"""
         model.to(accelerator.device)
         model.eval()
@@ -442,6 +472,67 @@ def main(cfg: DictConfig):
             all_preds.extend([np.squeeze(output, 0) for output in np.split(outputs.detach().cpu().numpy(), len(outputs))])
 
         return all_preds, losses.avg
+    
+
+    ## TODO: do validate on every epoch
+    def validate(model, train_loss, epoch, fold, accelerator, valid_loader, valid_ds, valid_reference_df):
+        """
+        Validate and save the model
+        """
+        ## Initialize global variables for best score and best pred df
+        global best_score, best_score_06, best_pred_df
+
+        thresholds_to_validate = [0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.97, 0.99]
+        threshold_to_idx_mapping = {threshold: idx for idx, threshold in enumerate(thresholds_to_validate)}
+        accelerator.print(threshold_to_idx_mapping)
+        # Validation loop
+        preds, valid_loss = evaluate(accelerator, model, valid_loader)
+        threshold_f5 = []
+        pred_dfs_f5 = []
+        accelerator.print("Postprocessing predictions for validation...")
+        # Processing predictions for validation
+        preds = get_processed_preds(preds, valid_ds)
+
+        accelerator.print("Validating for various thresholds...")
+        for threshold in thresholds_to_validate:
+            pred_df, _ = generate_pred_df(preds, valid_ds, threshold=threshold)
+            eval_dict = compute_metrics(pred_df, valid_reference_df)
+            threshold_f5.append(eval_dict['ents_f5'])
+            pred_dfs_f5.append(pred_df)
+            accelerator.print(f"Threshold: {threshold}, Validation f5 score: {eval_dict['ents_f5']}")
+        
+        f5_score = threshold_f5[threshold_to_idx_mapping[float(cfg.threshold)]]
+        pred_df = pred_dfs_f5[threshold_to_idx_mapping[float(cfg.threshold)]]
+        f5_score_06 = threshold_f5[threshold_to_idx_mapping[0.6]]
+
+        accelerator.print(f"\nValidation f5 score: {f5_score:.4f}")
+
+        accelerator.log({"valid/train_loss_avg": train_loss, 
+                "valid/valid_loss_avg": valid_loss, 
+                "valid/f5": f5_score,
+                **({f"valid/f5_{threshold}": f5 for threshold, f5 in zip(thresholds_to_validate, threshold_f5)}),
+                "valid/step": epoch})
+
+        if f5_score > best_score:
+            best_score = f5_score
+            best_pred_df = pred_df
+
+            accelerator.wait_for_everyone()
+            unwrapped_model = accelerator.unwrap_model(model)
+            save_path = os.path.join(cfg.output_dir, f"{cfg.model_name.split(os.path.sep)[-1]}_fold{fold}_seed{cfg.seed}.bin")
+
+            if accelerator.is_main_process:
+                torch.save(unwrapped_model.state_dict(), save_path)
+        
+        if f5_score_06 > best_score_06 and cfg.save_other_threshold:
+            best_score_06 = f5_score_06
+
+            accelerator.wait_for_everyone()
+            unwrapped_model = accelerator.unwrap_model(model)
+            save_path = os.path.join(cfg.output_dir, f"{cfg.model_name.split(os.path.sep)[-1]}_fold{fold}_seed{cfg.seed}_threshold_06.bin")
+
+            if accelerator.is_main_process:
+                torch.save(unwrapped_model.state_dict(), save_path)
     
     def prepare_data(accelerator):
         with open("../data/train.json") as f:
@@ -529,9 +620,6 @@ def main(cfg: DictConfig):
         best_score = 0
         best_score_06 = 0
         best_pred_df = None
-        thresholds_to_validate = [0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.97, 0.99]
-        threshold_to_idx_mapping = {threshold: idx for idx, threshold in enumerate(thresholds_to_validate)}
-        accelerator.print(threshold_to_idx_mapping)
         # Seed everything
         seed_everything(seed=cfg.seed)
         accelerator.init_trackers(project_name = cfg.project_name, config = dict(cfg), init_kwargs = {"wandb": {"group": cfg.model_name, "reinit": True}})
@@ -573,62 +661,18 @@ def main(cfg: DictConfig):
             model, optimizer, train_loader, scheduler
         )
 
+        _validate = partial(validate, accelerator = accelerator, valid_loader = valid_loader, valid_ds = valid_ds, valid_reference_df = valid_reference_df)
+
         for epoch in range(cfg.epochs):
             accelerator.print(f"Training FOLD : {fold}, EPOCH: {epoch + 1}")
             # Training loop
-            train_loss = train(accelerator, epoch, model, train_loader, optimizer, scheduler)
-            # Validation loop
-            preds, valid_loss = evaluate(accelerator, epoch, model, valid_loader)
-            threshold_f5 = []
-            pred_dfs_f5 = []
-            accelerator.print("Postprocessing predictions for validation...")
-            # Processing predictions for validation
-            preds = get_processed_preds(preds, valid_ds)
-
-            accelerator.print("Validating for various thresholds...")
-            for threshold in thresholds_to_validate:
-                pred_df, softmax_preds = generate_pred_df(preds, valid_ds, threshold=threshold)
-                eval_dict = compute_metrics(pred_df, valid_reference_df)
-                threshold_f5.append(eval_dict['ents_f5'])
-                pred_dfs_f5.append(pred_df)
-                accelerator.print(f"Threshold: {threshold}, Validation f5 score: {eval_dict['ents_f5']}")
-            
-            f5_score = threshold_f5[threshold_to_idx_mapping[float(cfg.threshold)]]
-            pred_df = pred_dfs_f5[threshold_to_idx_mapping[float(cfg.threshold)]]
-            f5_score_06 = threshold_f5[threshold_to_idx_mapping[0.6]]
-
-            accelerator.print(f"\nValidation f5 score: {f5_score:.4f}")
-
-            accelerator.log({"valid/train_loss_avg": train_loss, 
-                    "valid/valid_loss_avg": valid_loss, 
-                    "valid/f5": f5_score,
-                    **({f"valid/f5_{threshold}": f5 for threshold, f5 in zip(thresholds_to_validate, threshold_f5)}),
-                    "valid/step": epoch})
-
-            if f5_score > best_score:
-                best_score = f5_score
-                best_pred_df = pred_df
-
-                accelerator.wait_for_everyone()
-                unwrapped_model = accelerator.unwrap_model(model)
-                save_path = os.path.join(cfg.output_dir, f"{cfg.model_name.split(os.path.sep)[-1]}_fold{fold}_seed{cfg.seed}.bin")
-
-                if accelerator.is_main_process:
-                    torch.save(unwrapped_model.state_dict(), save_path)
-            
-            if f5_score_06 > best_score_06 and cfg.save_other_threshold:
-                best_score_06 = f5_score_06
-
-                accelerator.wait_for_everyone()
-                unwrapped_model = accelerator.unwrap_model(model)
-                save_path = os.path.join(cfg.output_dir, f"{cfg.model_name.split(os.path.sep)[-1]}_fold{fold}_seed{cfg.seed}_threshold_06.bin")
-
-                if accelerator.is_main_process:
-                    torch.save(unwrapped_model.state_dict(), save_path)
+            train(accelerator, epoch, model, train_loader, optimizer, scheduler, _validate)
 
         # Prepare data to visualize errors and log them as a Weights & Biases table
         accelerator.print('Visualizing errors...')
         if cfg.visualize:
+            if best_pred_df is None:
+                raise ValueError("Best pred df is None. Check how global variables are being used.")
             error_row_ids = get_error_row_ids(valid_reference_df, best_pred_df)
             viz_df = pd.read_json("../data/train.json")
             viz_df = viz_df[viz_df.document.isin(error_row_ids)][["document", "full_text"]]
