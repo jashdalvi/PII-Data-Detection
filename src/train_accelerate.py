@@ -617,9 +617,6 @@ def main(cfg: DictConfig):
     
     def main_fold(accelerator, fold, train_ds, valid_ds, tokenizer, valid_reference_df):
         """Main loop"""
-        best_score = 0
-        best_score_06 = 0
-        best_pred_df = None
         # Seed everything
         seed_everything(seed=cfg.seed)
         accelerator.init_trackers(project_name = cfg.project_name, config = dict(cfg), init_kwargs = {"wandb": {"group": cfg.model_name, "reinit": True}})
@@ -728,6 +725,9 @@ def main(cfg: DictConfig):
             pred_dfs = []
             valid_reference_dfs = []
             for oof_fold in range(cfg.num_folds):
+                ## Skip the fold if the pred and reference dfs are not present
+                if not (os.path.exists(os.path.join("../data", f"pred_df_fold_{oof_fold}.csv")) and os.path.exists(os.path.join("../data", f"reference_df_fold_{oof_fold}.csv"))):
+                    continue
                 pred_df = pd.read_csv(os.path.join("../data", f"pred_df_fold_{oof_fold}.csv"))
                 valid_reference_df = pd.read_csv(os.path.join("../data", f"reference_df_fold_{oof_fold}.csv"))
                 pred_dfs.append(pred_df)
