@@ -607,7 +607,7 @@ def main(cfg: DictConfig):
                 id2label = {i: label for i, label in enumerate(LABELS)}
                 train_ds_not_O = train_ds.filter(lambda x: any([id2label[int(l)] != "O" for l in x["labels"]]), num_proc = 4)
                 train_ds_only_O = train_ds.filter(lambda x: all([id2label[int(l)] == "O" for l in x["labels"]]), num_proc = 4)
-                downsample_ds_size = int(len(train_ds_not_O) * cfg.downsample_ratio)
+                downsample_ds_size = int(len(train_ds_only_O) * cfg.downsample_ratio)
                 train_ds_only_O = train_ds_only_O.shuffle(seed=cfg.seed).select(list(range(downsample_ds_size)))
                 train_ds = concatenate_datasets([train_ds_not_O, train_ds_only_O])
 
