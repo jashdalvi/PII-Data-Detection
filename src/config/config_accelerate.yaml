@@ -3,7 +3,7 @@ hydra:
     chdir: False
 
 batch_size: 2
-valid_batch_size: 8
+valid_batch_size: 4
 epochs: 3
 eval_ratio: 0.25 # Ratio of the number of times you want to do validation every epoch
 num_workers: 4
