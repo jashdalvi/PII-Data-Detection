@@ -448,7 +448,6 @@ def main(cfg: DictConfig):
             if batch_idx in eval_idxs or batch_idx == len(train_loader) - 1:
                 _validate(model, losses.avg, epoch, cfg.fold)
                 model.train()
-                accelerator.free_memory()
         
         return losses.avg
 
