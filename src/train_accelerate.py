@@ -317,9 +317,9 @@ def main(cfg: DictConfig):
             super(Model, self).__init__()
 
             self.model_name = cfg.model_name
-            config = AutoConfig.from_pretrained(self.model_name)
+            self.config = AutoConfig.from_pretrained(self.model_name)
 
-            config.update({
+            self.config.update({
                     "hidden_dropout_prob": cfg.hidden_dropout_prob,
                     "attention_probs_dropout_prob" : cfg.hidden_dropout_prob,
                     "layer_norm_eps": cfg.layer_norm_eps,
@@ -327,12 +327,12 @@ def main(cfg: DictConfig):
                     "num_labels": len(LABELS)
             })
 
-            self.transformer = AutoModel.from_pretrained(self.model_name, config=config)
-            self.linear = nn.Linear(config.hidden_size, len(LABELS))
+            self.transformer = AutoModel.from_pretrained(self.model_name, config=self.config)
+            self.linear = nn.Linear(self.config.hidden_size, len(LABELS))
             self.dropout = nn.Dropout(cfg.hidden_dropout_prob)
 
             if cfg.pooling == "lstm":
-                self.lstm_head = LSTMHead(config.hidden_size, config.hidden_size // 2, n_layers = 1)
+                self.lstm_head = LSTMHead(self.config.hidden_size, self.config.hidden_size // 2, n_layers = 1)
 
             if cfg.gradient_checkpointing_enable:
                 self.transformer.gradient_checkpointing_enable()
@@ -416,7 +416,7 @@ def main(cfg: DictConfig):
 
         ## Get the total idxs
         total_idxs = len(train_loader)
-        eval_idxs = (np.linspace(0, total_idxs - 1, (1/cfg.eval_ratio) + 1)[1:]).tolist()
+        eval_idxs = (np.linspace(0, total_idxs - 1, int(1/cfg.eval_ratio) + 1).astype(np.int32)[1:]).tolist()
         accelerator.print(f"Evaluating at idxs: {eval_idxs} Total idxs: {total_idxs}")
 
         for batch_idx, (batch) in tqdm(enumerate(train_loader), total = len(train_loader), disable=not accelerator.is_main_process):   
@@ -481,6 +481,8 @@ def main(cfg: DictConfig):
         """
         ## Initialize global variables for best score and best pred df
         global best_score, best_score_06, best_pred_df
+
+        accelerator.wait_for_everyone()
 
         thresholds_to_validate = [0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.97, 0.99]
         threshold_to_idx_mapping = {threshold: idx for idx, threshold in enumerate(thresholds_to_validate)}
