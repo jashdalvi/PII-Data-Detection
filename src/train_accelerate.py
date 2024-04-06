@@ -469,6 +469,8 @@ def main(cfg: DictConfig):
                 with accelerator.autocast():
                     loss = criterion(outputs, labels)
 
+            ## Gathering metrics across all processes
+            outputs = accelerator.gather_for_metrics(outputs)
             losses.update(loss.item(), cfg.valid_batch_size)
             all_preds.extend([np.squeeze(output, 0) for output in np.split(outputs.detach().cpu().numpy(), len(outputs))])
 
@@ -657,8 +659,8 @@ def main(cfg: DictConfig):
         num_train_steps = (len(train_loader) * cfg.epochs) // cfg.gradient_accumulation_steps
         optimizer, scheduler = get_optimizer_scheduler(model, num_train_steps)
 
-        model, optimizer, train_loader, scheduler = accelerator.prepare(
-            model, optimizer, train_loader, scheduler
+        model, optimizer, train_loader, valid_loader, scheduler = accelerator.prepare(
+            model, optimizer, train_loader, valid_loader, scheduler
         )
 
         _validate = partial(validate, accelerator = accelerator, valid_loader = valid_loader, valid_ds = valid_ds, valid_reference_df = valid_reference_df)
