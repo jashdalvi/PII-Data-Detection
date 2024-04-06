@@ -329,7 +329,7 @@ def main(cfg: DictConfig):
 
             self.transformer = AutoModel.from_pretrained(self.model_name, config=self.config)
             self.linear = nn.Linear(self.config.hidden_size, len(LABELS))
-            self.dropout = nn.Dropout(cfg.hidden_dropout_prob)
+            # self.dropout = nn.Dropout(cfg.hidden_dropout_prob)
 
             if cfg.pooling == "lstm":
                 self.lstm_head = LSTMHead(self.config.hidden_size, self.config.hidden_size // 2, n_layers = 1)
@@ -369,7 +369,7 @@ def main(cfg: DictConfig):
                 sequence_output = self.lstm_head(outputs.last_hidden_state)
                 logits = self.linear(sequence_output)
             else:
-                logits = self.linear(self.dropout(outputs.last_hidden_state))
+                logits = self.linear(outputs.last_hidden_state)
             return logits
 
     def criterion(outputs, targets):
