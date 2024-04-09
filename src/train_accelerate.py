@@ -31,6 +31,7 @@ from collections import OrderedDict
 from accelerate import Accelerator
 from modules import LSTMHead
 from functools import partial
+from sklearn.model_selection import train_test_split
 transformers.logging.set_verbosity_error()
 warnings.filterwarnings("ignore")
 
@@ -329,7 +330,7 @@ def main(cfg: DictConfig):
 
             self.transformer = AutoModel.from_pretrained(self.model_name, config=self.config)
             self.linear = nn.Linear(self.config.hidden_size, len(LABELS))
-            # self.dropout = nn.Dropout(cfg.hidden_dropout_prob)
+            self.dropout = nn.Dropout(cfg.hidden_dropout_prob)
 
             if cfg.pooling == "lstm":
                 self.lstm_head = LSTMHead(self.config.hidden_size, self.config.hidden_size // 2, n_layers = 1)
@@ -369,7 +370,7 @@ def main(cfg: DictConfig):
                 sequence_output = self.lstm_head(outputs.last_hidden_state)
                 logits = self.linear(sequence_output)
             else:
-                logits = self.linear(outputs.last_hidden_state)
+                logits = self.linear(self.dropout(outputs.last_hidden_state))
             return logits
 
     def criterion(outputs, targets):
@@ -540,8 +541,33 @@ def main(cfg: DictConfig):
                 torch.save(unwrapped_model.state_dict(), save_path)
     
     def prepare_data(accelerator):
-        with open("../data/train.json") as f:
+        # with open("../data/train.json") as f:
+        #     data = json.load(f)
+
+        with open("../data/datamix.json") as f:
             data = json.load(f)
+
+        full_data = []
+        for key in data:
+            cur_data = data[key]
+            for i in range(len(cur_data)):
+                keys_to_include = ['document', 'full_text', 'tokens', 'trailing_whitespace', 'labels']
+                sub_dict = dict()
+                for _key in keys_to_include:
+                    sub_dict[_key] = cur_data[i][_key]
+                full_data.append(sub_dict)
+
+        accelerator.print(f"The length of data is {len(full_data)}")
+        train_full_data, test_full_data = train_test_split(full_data, test_size=0.1, random_state = 42)
+        for ex in train_full_data:
+            ex["fold"] = 0
+        
+        for ex in test_full_data:
+            ex["fold"] = 1
+        
+        data = []
+        data.extend(train_full_data)
+        data.extend(test_full_data)
 
         tokenizer = AutoTokenizer.from_pretrained(cfg.model_name)
 
@@ -556,7 +582,7 @@ def main(cfg: DictConfig):
                 "tokens": [x["tokens"] for x in data],
                 "trailing_whitespace": [x["trailing_whitespace"] for x in data],
                 "provided_labels": [x["labels"] for x in data],
-                "fold": [x["document"] % 4 for x in data]
+                "fold": [x["fold"] for x in data]
             })
 
             if cfg.use_external_data:

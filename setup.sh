@@ -5,6 +5,7 @@ kaggle datasets download -d jashdalvi99/pii-dataset -p data/
 kaggle datasets download -d nbroad/pii-dd-mistral-generated -p data/
 kaggle datasets download -d tonyarobertson/mixtral-original-prompt -p data/
 kaggle datasets download -d mpware/pii-mixtral8x7b-generated-essays -p data/
+kaggle kernels output conjuring92/pii-mv01-aux -p data/
 python setup.py
 rm data/pii-dataset.zip
 rm data/pii-dd-mistral-generated.zip
