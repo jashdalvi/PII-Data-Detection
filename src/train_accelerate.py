@@ -541,33 +541,36 @@ def main(cfg: DictConfig):
                 torch.save(unwrapped_model.state_dict(), save_path)
     
     def prepare_data(accelerator):
-        # with open("../data/train.json") as f:
-        #     data = json.load(f)
-
-        with open("../data/datamix.json") as f:
+        with open("../data/train.json") as f:
             data = json.load(f)
 
-        full_data = []
-        for key in data:
-            cur_data = data[key]
-            for i in range(len(cur_data)):
-                keys_to_include = ['document', 'full_text', 'tokens', 'trailing_whitespace', 'labels']
-                sub_dict = dict()
-                for _key in keys_to_include:
-                    sub_dict[_key] = cur_data[i][_key]
-                full_data.append(sub_dict)
+        # with open("../data/datamix.json") as f:
+        #     data = json.load(f)
 
-        accelerator.print(f"The length of data is {len(full_data)}")
-        train_full_data, test_full_data = train_test_split(full_data, test_size=0.1, random_state = 42)
-        for ex in train_full_data:
-            ex["fold"] = 0
+        # full_data = []
+        # for key in data:
+        #     cur_data = data[key]
+        #     for i in range(len(cur_data)):
+        #         keys_to_include = ['document', 'full_text', 'tokens', 'trailing_whitespace', 'labels']
+        #         sub_dict = dict()
+        #         for _key in keys_to_include:
+        #             sub_dict[_key] = cur_data[i][_key]
+        #         full_data.append(sub_dict)
+
+        # accelerator.print(f"The length of data is {len(full_data)}")
+        # train_full_data, test_full_data = train_test_split(full_data, test_size=0.1, random_state = 42)
+        # for ex in train_full_data:
+        #     ex["fold"] = 1
         
-        for ex in test_full_data:
-            ex["fold"] = 1
+        # for ex in test_full_data:
+        #     ex["fold"] = 0
         
-        data = []
-        data.extend(train_full_data)
-        data.extend(test_full_data)
+        # accelerator.print(f"The length of train data is {len(train_full_data)}")
+        # accelerator.print(f"The length of test data is {len(test_full_data)}")
+
+        # data = []
+        # data.extend(train_full_data)
+        # data.extend(test_full_data)
 
         tokenizer = AutoTokenizer.from_pretrained(cfg.model_name)
 
@@ -582,7 +585,7 @@ def main(cfg: DictConfig):
                 "tokens": [x["tokens"] for x in data],
                 "trailing_whitespace": [x["trailing_whitespace"] for x in data],
                 "provided_labels": [x["labels"] for x in data],
-                "fold": [x["fold"] for x in data]
+                "fold": [x["document"] % 4 for x in data]
             })
 
             if cfg.use_external_data:
@@ -679,6 +682,8 @@ def main(cfg: DictConfig):
         )
 
         model = Model()
+        model.load_state_dict(torch.load("/root/PII-Data-Detection/deberta-v3-large_fold0_seed42.bin"))
+        model.linear.apply(model._init_weights)
         if cfg.add_new_line_token:
             model.transformer.resize_token_embeddings(len(tokenizer))
         

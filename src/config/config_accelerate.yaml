@@ -44,7 +44,7 @@ train_whole_dataset: False
 visualize: False
 upload_models: True
 add_new_line_token: False
-merge_token_preds: True
+merge_token_preds: False
 downsample_dataset: False
 downsample_ratio: 0.3
 pooling: "normal"
