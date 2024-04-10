@@ -24,6 +24,12 @@ zf = zipfile.ZipFile(zipFileName)
 zf.extractall(path=zipPath)
 zf.close()
 
+zipFileName = "/root/PII-Data-Detection/data/pii-data-detection-deberta-v3-large-cv-098156.zip"
+zipPath = "/root/PII-Data-Detection/data/"
+zf = zipfile.ZipFile(zipFileName)
+zf.extractall(path=zipPath)
+zf.close()
+
 import nltk
 import os
 from dotenv import load_dotenv

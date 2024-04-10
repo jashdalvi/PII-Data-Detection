@@ -682,8 +682,8 @@ def main(cfg: DictConfig):
         )
 
         model = Model()
-        model.load_state_dict(torch.load("/root/PII-Data-Detection/deberta-v3-large_fold0_seed42.bin"))
-        model.linear.apply(model._init_weights)
+        model.load_state_dict(torch.load("/root/PII-Data-Detection/data/deberta-v3-large_fold0_seed42.bin"))
+        # model.linear.apply(model._init_weights)
         if cfg.add_new_line_token:
             model.transformer.resize_token_embeddings(len(tokenizer))
         
