@@ -330,9 +330,8 @@ def main(cfg: DictConfig):
                     "add_pooling_layer": False,
                     "num_labels": len(LABELS)
             })
-
             self.transformer = AutoModel.from_pretrained(self.model_name, config=self.config)
-            self.linear = nn.Linear(self.config.hidden_size, len(LABELS))
+            self.linear = nn.Linear(self.config.hidden_size, self.config.num_labels)
             self.dropout = nn.Dropout(cfg.hidden_dropout_prob)
             self.loss_fn = nn.CrossEntropyLoss()
 
@@ -376,7 +375,7 @@ def main(cfg: DictConfig):
             else:
                 logits = self.linear(self.dropout(outputs.last_hidden_state))
             
-            loss = self.loss_fn(outputs.view(-1, outputs.size(-1)), labels.view(-1))
+            loss = self.loss_fn(logits.view(-1, self.config.num_labels), labels.view(-1))
             return (logits, loss)
 
     def get_optimizer_scheduler(model, num_train_steps):
@@ -424,8 +423,6 @@ def main(cfg: DictConfig):
         accelerator.print(f"Evaluating at idxs: {eval_idxs} Total idxs: {total_idxs}")
 
         for batch_idx, (batch) in tqdm(enumerate(train_loader), total = len(train_loader), disable=not accelerator.is_main_process):   
-            labels = batch.pop("labels")
-            
             with accelerator.accumulate(model):
                 outputs, loss = model(**batch)
                 
@@ -463,6 +460,7 @@ def main(cfg: DictConfig):
             with torch.no_grad():
                 outputs, loss = model(**batch)
             
+            outputs = accelerator.pad_across_processes(outputs, dim=1, pad_index=-100)
             outputs = accelerator.gather_for_metrics(outputs)
             outputs = outputs.cpu().numpy()
             losses.update(loss.item(), cfg.valid_batch_size)
