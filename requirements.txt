@@ -22,3 +22,5 @@ beautifulsoup4
 scikit-learn
 datasets
 accelerate
+bitsandbytes
+peft
