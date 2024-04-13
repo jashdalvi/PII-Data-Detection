@@ -277,7 +277,7 @@ def main(cfg: DictConfig):
             token_map_idx += 1
 
 
-        tokenized = tokenizer("".join(text), return_offsets_mapping=True, truncation = True, padding = False, max_length=max_length, return_overflowing_tokens=cfg.return_overflowing_tokens, add_special_tokens = True, stride = cfg.stride)
+        tokenized = tokenizer("".join(text), return_offsets_mapping=True, padding = False, max_length=max_length, return_overflowing_tokens=cfg.return_overflowing_tokens, add_special_tokens = True)
 
         if not cfg.return_overflowing_tokens:
             for k, v in tokenized.items():
@@ -391,9 +391,9 @@ def main(cfg: DictConfig):
                 if accelerator.sync_gradients:
                     accelerator.clip_grad_norm_(model.parameters(), cfg.max_grad_norm)
                 
-                optimizer.step()
-                scheduler.step()
-                optimizer.zero_grad()
+                    optimizer.step()
+                    scheduler.step()
+                    optimizer.zero_grad()
             
             losses.update(loss.item(), cfg.batch_size)
 
@@ -642,30 +642,33 @@ def main(cfg: DictConfig):
             collate_fn=valid_collator
         )
 
-        bnb_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_use_double_quant=True,
-            bnb_4bit_compute_dtype=torch.float16
-        )
+        # bnb_config = BitsAndBytesConfig(
+        #     load_in_4bit=True,
+        #     bnb_4bit_quant_type="nf4",
+        #     bnb_4bit_use_double_quant=True,
+        #     bnb_4bit_compute_dtype=torch.float16
+        # )
 
-        base_model = LlamaForTokenClassification.from_pretrained(cfg.model_name, num_labels=len(LABELS), quantization_config=bnb_config, trust_remote_code=True)
+        base_model = LlamaForTokenClassification.from_pretrained(cfg.model_name, num_labels=len(LABELS), trust_remote_code=True)
         base_model.config.pretraining_tp = 1
         peft_config = LoraConfig(
-            r=16,
-            lora_alpha=16,
+            r=8,
+            lora_alpha=32,
             lora_dropout=0.1,
             bias="none",
             task_type=TaskType.TOKEN_CLS,
             inference_mode=False,
             target_modules=["q_proj","k_proj"],
-            modules_to_save=["classification_head", "lstm_head"],
+            modules_to_save=["lstm_head", "classification_head"],
         )
 
         model = get_peft_model(base_model, peft_config)
+        accelerator.print(model.device)
 
         # Print the trainable parameters
         model.print_trainable_parameters()
+
+        accelerator.wait_for_everyone()
 
         if cfg.add_new_line_token:
             model.transformer.resize_token_embeddings(len(tokenizer))
@@ -679,6 +682,7 @@ def main(cfg: DictConfig):
 
         _validate = partial(validate, accelerator = accelerator, valid_loader = valid_loader, valid_ds = valid_ds, valid_reference_df = valid_reference_df)
 
+        accelerator.wait_for_everyone()
         for epoch in range(cfg.epochs):
             accelerator.print(f"Training FOLD : {fold}, EPOCH: {epoch + 1}")
             # Training loop

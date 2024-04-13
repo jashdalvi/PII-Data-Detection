@@ -147,7 +147,6 @@ class LlamaForTokenClassification(LlamaPreTrainedModel):
         super().__init__(config)
         self.num_labels = config.num_labels
         self.model = LlamaModel(config)
-        self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
         self.lstm_head = LSTMHead(in_features=config.hidden_size, hidden_dim=config.hidden_size//2, n_layers=1)
         self.classification_head = nn.Linear(config.hidden_size, self.num_labels, bias=False)
@@ -191,9 +190,7 @@ class LlamaForTokenClassification(LlamaPreTrainedModel):
             return_dict=return_dict,
         )
         sequence_output = transformer_outputs[0]  # (bs, seq_len, dim)
-
         sequence_output = self.lstm_head(sequence_output) # Apply LSTM for bidirectional context
-        sequence_output = self.dropout(sequence_output)
         logits = self.classification_head(sequence_output) # (bs, num_labels)
 
         loss = self.loss_fn(logits.view(-1, self.num_labels), labels.view(-1))
