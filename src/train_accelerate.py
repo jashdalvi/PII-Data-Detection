@@ -313,6 +313,9 @@ def main(cfg: DictConfig):
             "token_idxs_mapping": token_idxs_mapping
         }
 
+    def criterion(outputs, targets):
+        return nn.CrossEntropyLoss()(outputs.view(-1, outputs.size(-1)), targets.view(-1))
+
     class Model(nn.Module):
         def __init__(self):
             super(Model, self).__init__()
@@ -331,6 +334,7 @@ def main(cfg: DictConfig):
             self.transformer = AutoModel.from_pretrained(self.model_name, config=self.config)
             self.linear = nn.Linear(self.config.hidden_size, len(LABELS))
             self.dropout = nn.Dropout(cfg.hidden_dropout_prob)
+            self.loss_fn = nn.CrossEntropyLoss()
 
             if cfg.pooling == "lstm":
                 self.lstm_head = LSTMHead(self.config.hidden_size, self.config.hidden_size // 2, n_layers = 1)
@@ -363,7 +367,7 @@ def main(cfg: DictConfig):
                 for n,p in self.transformer.encoder.layer[i].named_parameters():
                     p.requires_grad = False
 
-        def forward(self, input_ids, attention_mask):
+        def forward(self, input_ids, attention_mask, labels):
             outputs = self.transformer(input_ids=input_ids, attention_mask=attention_mask)
 
             if cfg.pooling == "lstm":
@@ -371,11 +375,10 @@ def main(cfg: DictConfig):
                 logits = self.linear(sequence_output)
             else:
                 logits = self.linear(self.dropout(outputs.last_hidden_state))
-            return logits
+            
+            loss = self.loss_fn(outputs.view(-1, outputs.size(-1)), labels.view(-1))
+            return (logits, loss)
 
-    def criterion(outputs, targets):
-        return nn.CrossEntropyLoss()(outputs.view(-1, outputs.size(-1)), targets.view(-1))
-    
     def get_optimizer_scheduler(model, num_train_steps):
         """get optimizer and scheduler"""
         no_decay = ["bias", "LayerNorm.weight"]
@@ -424,9 +427,7 @@ def main(cfg: DictConfig):
             labels = batch.pop("labels")
             
             with accelerator.accumulate(model):
-                outputs = model(**batch)
-                with accelerator.autocast():
-                    loss = criterion(outputs, labels)
+                outputs, loss = model(**batch)
                 
                 accelerator.backward(loss)
 
@@ -454,26 +455,18 @@ def main(cfg: DictConfig):
 
     def evaluate(accelerator, model, valid_loader):
         """evaluate pass"""
-        model.to(accelerator.device)
         model.eval()
         all_preds = []
         losses = AverageMeter()
 
         for batch_idx, (batch) in tqdm(enumerate(valid_loader), total = len(valid_loader), disable=not accelerator.is_main_process):
-            for k, v in batch.items():
-                batch[k] = v.to(accelerator.device)
-
-            labels = batch.pop("labels")
             with torch.no_grad():
-                outputs = model(**batch)
+                outputs, loss = model(**batch)
             
-                with accelerator.autocast():
-                    loss = criterion(outputs, labels)
-
-            ## Gathering metrics across all processes
             outputs = accelerator.gather_for_metrics(outputs)
+            outputs = outputs.cpu().numpy()
             losses.update(loss.item(), cfg.valid_batch_size)
-            all_preds.extend([np.squeeze(output, 0) for output in np.split(outputs.detach().cpu().numpy(), len(outputs))])
+            all_preds.extend([outputs[i] for i in range(outputs.shape[0])])
 
         return all_preds, losses.avg
     
@@ -682,7 +675,7 @@ def main(cfg: DictConfig):
         )
 
         model = Model()
-        model.load_state_dict(torch.load("/root/PII-Data-Detection/data/deberta-v3-large_fold0_seed42.bin"))
+        # model.load_state_dict(torch.load("/root/PII-Data-Detection/data/deberta-v3-large_fold0_seed42.bin"))
         # model.linear.apply(model._init_weights)
         if cfg.add_new_line_token:
             model.transformer.resize_token_embeddings(len(tokenizer))
