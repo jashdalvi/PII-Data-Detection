@@ -649,7 +649,11 @@ def main(cfg: DictConfig):
         #     bnb_4bit_compute_dtype=torch.float16
         # )
 
+<<<<<<< HEAD
         base_model = LlamaForTokenClassification.from_pretrained(cfg.model_name, num_labels=len(LABELS), trust_remote_code=True)
+=======
+        base_model = MistralForTokenClassification.from_pretrained(cfg.model_name, num_labels=len(LABELS), quantization_config=bnb_config, trust_remote_code=True)
+>>>>>>> b39e785350d1fd828aba4de47d14da21d182c3c2
         base_model.config.pretraining_tp = 1
         peft_config = LoraConfig(
             r=8,
