@@ -714,7 +714,7 @@ def main(cfg: DictConfig):
 
     wandb.login(key = os.environ['WANDB_API_KEY']) # Enter your API key here
     # Create the main accelerator object
-    accelerator = Accelerator(mixed_precision="fp16", gradient_accumulation_steps=int(cfg.gradient_accumulation_steps), log_with = "wandb")
+    accelerator = Accelerator(mixed_precision=cfg.mixed_precision, gradient_accumulation_steps=int(cfg.gradient_accumulation_steps), log_with = "wandb")
 
     # Create the output directory if it doesn't exist
     if accelerator.is_main_process:
