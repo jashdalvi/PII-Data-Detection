@@ -313,9 +313,6 @@ def main(cfg: DictConfig):
             "token_idxs_mapping": token_idxs_mapping
         }
 
-    def criterion(outputs, targets):
-        return nn.CrossEntropyLoss()(outputs.view(-1, outputs.size(-1)), targets.view(-1))
-
     class Model(nn.Module):
         def __init__(self):
             super(Model, self).__init__()
