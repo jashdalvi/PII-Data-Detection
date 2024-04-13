@@ -168,12 +168,12 @@ class LlamaForTokenClassification(LlamaPreTrainedModel):
         self.num_labels = config.num_labels
         self.model = LlamaModel(config)
 
-        # self.lstm_head = nn.LSTM(config.hidden_size,
-        #                     config.hidden_size//2,
-        #                     1,
-        #                     batch_first=True,
-        #                     bidirectional=True,
-        #                     dropout=0.1)
+        self.lstm_head = nn.LSTM(config.hidden_size,
+                            config.hidden_size//2,
+                            1,
+                            batch_first=True,
+                            bidirectional=True,
+                            dropout=0.1)
         self.classification_head = nn.Linear(config.hidden_size, self.num_labels, bias=False)
 
         self.loss_fn = nn.CrossEntropyLoss()
@@ -215,7 +215,7 @@ class LlamaForTokenClassification(LlamaPreTrainedModel):
             return_dict=return_dict,
         )
         sequence_output = transformer_outputs[0]  # (bs, seq_len, dim)
-        # sequence_output, (_, _) = self.lstm_head(sequence_output) # Apply LSTM for bidirectional context
+        sequence_output, (_, _) = self.lstm_head(sequence_output) # Apply LSTM for bidirectional context
         logits = self.classification_head(sequence_output) # (bs, num_labels)
 
         loss = self.loss_fn(logits.view(-1, self.num_labels), labels.view(-1))
