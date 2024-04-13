@@ -1,7 +1,7 @@
 torch
 torchvision
 torchaudio
-transformers
+git+https://github.com/huggingface/transformers
 kaggle
 wandb
 tqdm
@@ -23,4 +23,4 @@ scikit-learn
 datasets
 accelerate
 bitsandbytes
-peft
+git+https://github.com/huggingface/peft
