@@ -33,7 +33,7 @@ from accelerate import Accelerator
 from modules import LSTMHead
 from functools import partial
 from sklearn.model_selection import train_test_split
-from models import PhiForTokenClassification, MistralForTokenClassification
+from models import PhiForTokenClassification, MistralForTokenClassification, LlamaForTokenClassification
 from peft import (LoraConfig, TaskType, get_peft_model,
                   prepare_model_for_kbit_training)
 transformers.logging.set_verbosity_error()
@@ -126,6 +126,13 @@ def main(cfg: DictConfig):
         
         return predictions
     
+    def truncate_preds(preds, offset_length):
+        if offset_length > len(preds):
+            raise ValueError("Offset length is greater than the length of the predictions. Debug the offset length")
+        
+        preds_index = len(preds) - offset_length
+        return preds[preds_index:]
+    
     def get_processed_preds(preds, ds):
         if cfg.stride > 0:
             # Average the predictions of overlapping tokens
@@ -153,7 +160,7 @@ def main(cfg: DictConfig):
             
             preds = merged_preds.copy()
         else:
-            preds = [softmax(p[:len(offsets)]) for p, offsets in zip(preds, ds["offset_mapping"])]
+            preds = [softmax(truncate_preds(p, len(offsets))) for p, offsets in zip(preds, ds["offset_mapping"])]
 
         preds = [get_merged_preds(p, token_idxs_mapping if cfg.merge_token_preds else None) for p, token_idxs_mapping in zip(preds, ds["token_idxs_mapping"])]
 
@@ -236,9 +243,14 @@ def main(cfg: DictConfig):
                     output_labels.append(labels)
                 output["labels"] = output_labels
             
-            output["input_ids"] = [input_ids + [self.tokenizer.pad_token_id] * (batch_len - len(input_ids)) for input_ids in output["input_ids"]]
-            output["attention_mask"] = [attention_mask + [0] * (batch_len - len(attention_mask)) for attention_mask in output["attention_mask"]]
-            output["labels"] = [labels + [-100] * (batch_len - len(labels)) for labels in output["labels"]]
+            if self.tokenizer.padding_side == "right":
+                output["input_ids"] = [input_ids + [self.tokenizer.pad_token_id] * (batch_len - len(input_ids)) for input_ids in output["input_ids"]]
+                output["attention_mask"] = [attention_mask + [0] * (batch_len - len(attention_mask)) for attention_mask in output["attention_mask"]]
+                output["labels"] = [labels + [-100] * (batch_len - len(labels)) for labels in output["labels"]]
+            else:
+                output["input_ids"] = [[self.tokenizer.pad_token_id] * (batch_len - len(input_ids)) + input_ids for input_ids in output["input_ids"]]
+                output["attention_mask"] = [[0] * (batch_len - len(attention_mask)) + attention_mask for attention_mask in output["attention_mask"]]
+                output["labels"] = [[-100] * (batch_len - len(labels)) + labels for labels in output["labels"]]
 
             output["input_ids"] = torch.tensor(output["input_ids"], dtype=torch.long)
             output["attention_mask"] = torch.tensor(output["attention_mask"], dtype=torch.long)
@@ -265,7 +277,7 @@ def main(cfg: DictConfig):
             token_map_idx += 1
 
 
-        tokenized = tokenizer("".join(text), return_offsets_mapping=True, truncation = True, max_length=max_length, return_overflowing_tokens=cfg.return_overflowing_tokens, stride = cfg.stride)
+        tokenized = tokenizer("".join(text), return_offsets_mapping=True, truncation = True, padding = False, max_length=max_length, return_overflowing_tokens=cfg.return_overflowing_tokens, stride = cfg.stride)
 
         if not cfg.return_overflowing_tokens:
             for k, v in tokenized.items():
@@ -410,7 +422,7 @@ def main(cfg: DictConfig):
                 loss = outputs.loss
                 logits = outputs.logits
             
-            logits = accelerator.pad_across_processes(logits, dim=1, pad_index=-100)
+            logits = accelerator.pad_across_processes(logits, dim=1, pad_index=-100, pad_first = True)
             logits = accelerator.gather_for_metrics(logits)
             logits = logits.cpu().numpy()
             losses.update(loss.item(), cfg.valid_batch_size)
@@ -520,6 +532,8 @@ def main(cfg: DictConfig):
         # data.extend(test_full_data)
 
         tokenizer = AutoTokenizer.from_pretrained(cfg.model_name)
+        # Add unk token as tokenizer.pad_token
+        tokenizer.pad_token = tokenizer.unk_token
 
         if cfg.add_new_line_token:
             tokenizer.add_tokens(AddedToken("\n", normalized=False))
@@ -635,7 +649,7 @@ def main(cfg: DictConfig):
             bnb_4bit_compute_dtype=torch.float16
         )
 
-        base_model = MistralForTokenClassification.from_pretrained(cfg.model_name, num_labels=len(LABELS), quantization_config=bnb_config, trust_remote_code=True)
+        base_model = LlamaForTokenClassification.from_pretrained(cfg.model_name, num_labels=len(LABELS), quantization_config=bnb_config, trust_remote_code=True)
         base_model.config.pretraining_tp = 1
         peft_config = LoraConfig(
             r=16,
