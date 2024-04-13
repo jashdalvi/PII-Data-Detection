@@ -10,6 +10,7 @@ from transformers.models.mistral.modeling_mistral import (
     MistralModel, MistralPreTrainedModel)
 from transformers.models.phi.modeling_phi import PhiModel, PhiPreTrainedModel
 
+
 class LSTMHead(nn.Module):
     def __init__(self, in_features, hidden_dim, n_layers):
         super().__init__()
@@ -26,6 +27,15 @@ class LSTMHead(nn.Module):
         hidden, (_, _) = self.lstm(x)
         out = hidden
         return out
+    
+class ClassificationHead(nn.Module):
+    def __init__(self, in_features, out_features):
+        super().__init__()
+        self.classifier = nn.Linear(in_features, out_features, bias=False)
+        self.out_features = out_features
+
+    def forward(self, x):
+        return self.classifier(x)
 
 
 class MistralForTokenClassification(MistralPreTrainedModel):
@@ -35,7 +45,12 @@ class MistralForTokenClassification(MistralPreTrainedModel):
         self.model = MistralModel(config)
         self.dropout = nn.Dropout(0.1)
 
-        self.lstm_head = LSTMHead(in_features=config.hidden_size, hidden_dim=config.hidden_size//2, n_layers=1)
+        self.lstm_head = nn.LSTM(config.hidden_size,
+                            config.hidden_size//2,
+                            1,
+                            batch_first=True,
+                            bidirectional=True,
+                            dropout=0.1)
         self.classification_head = nn.Linear(config.hidden_size, self.num_labels, bias=False)
 
         self.loss_fn = nn.CrossEntropyLoss()
@@ -72,7 +87,7 @@ class MistralForTokenClassification(MistralPreTrainedModel):
         )
         sequence_output = transformer_outputs[0]  # (bs, seq_len, dim)
 
-        sequence_output = self.lstm_head(sequence_output) # Apply LSTM for bidirectional context
+        sequence_output, (_, _) = self.lstm_head(sequence_output) # Apply LSTM for bidirectional context
         sequence_output = self.dropout(sequence_output)
         logits = self.classification_head(sequence_output) # (bs, num_labels)
 
@@ -93,7 +108,12 @@ class PhiForTokenClassification(PhiPreTrainedModel):
         self.model = PhiModel(config)
         self.dropout = nn.Dropout(0.1)
 
-        self.lstm_head = LSTMHead(in_features=config.hidden_size, hidden_dim=config.hidden_size//2, n_layers=1)
+        self.lstm_head = nn.LSTM(config.hidden_size,
+                            config.hidden_size//2,
+                            1,
+                            batch_first=True,
+                            bidirectional=True,
+                            dropout=0.1)
         self.classification_head = nn.Linear(config.hidden_size, self.num_labels, bias=False)
 
         self.loss_fn = nn.CrossEntropyLoss()
@@ -130,7 +150,7 @@ class PhiForTokenClassification(PhiPreTrainedModel):
         )
         sequence_output = transformer_outputs[0]  # (bs, seq_len, dim)
 
-        sequence_output = self.lstm_head(sequence_output) # Apply LSTM for bidirectional context
+        sequence_output, (_, _) = self.lstm_head(sequence_output) # Apply LSTM for bidirectional context
         sequence_output = self.dropout(sequence_output)
         logits = self.classification_head(sequence_output) # (bs, num_labels)
 
@@ -148,7 +168,12 @@ class LlamaForTokenClassification(LlamaPreTrainedModel):
         self.num_labels = config.num_labels
         self.model = LlamaModel(config)
 
-        self.lstm_head = LSTMHead(in_features=config.hidden_size, hidden_dim=config.hidden_size//2, n_layers=1)
+        # self.lstm_head = nn.LSTM(config.hidden_size,
+        #                     config.hidden_size//2,
+        #                     1,
+        #                     batch_first=True,
+        #                     bidirectional=True,
+        #                     dropout=0.1)
         self.classification_head = nn.Linear(config.hidden_size, self.num_labels, bias=False)
 
         self.loss_fn = nn.CrossEntropyLoss()
@@ -190,7 +215,7 @@ class LlamaForTokenClassification(LlamaPreTrainedModel):
             return_dict=return_dict,
         )
         sequence_output = transformer_outputs[0]  # (bs, seq_len, dim)
-        sequence_output = self.lstm_head(sequence_output) # Apply LSTM for bidirectional context
+        # sequence_output, (_, _) = self.lstm_head(sequence_output) # Apply LSTM for bidirectional context
         logits = self.classification_head(sequence_output) # (bs, num_labels)
 
         loss = self.loss_fn(logits.view(-1, self.num_labels), labels.view(-1))
