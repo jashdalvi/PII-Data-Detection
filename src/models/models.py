@@ -33,7 +33,7 @@ class MistralForTokenClassification(MistralPreTrainedModel):
         super().__init__(config)
         self.num_labels = config.num_labels
         self.model = MistralModel(config)
-        self.dropout = nn.Dropout(config.hidden_dropout_prob)
+        self.dropout = nn.Dropout(0.1)
 
         self.lstm_head = LSTMHead(in_features=config.hidden_size, hidden_dim=config.hidden_size//2, n_layers=1)
         self.classification_head = nn.Linear(config.hidden_size, self.num_labels, bias=False)
@@ -96,7 +96,7 @@ class PhiForTokenClassification(PhiPreTrainedModel):
         super().__init__(config)
         self.num_labels = config.num_labels
         self.model = PhiModel(config)
-        self.dropout = nn.Dropout(config.hidden_dropout_prob)
+        self.dropout = nn.Dropout(0.1)
 
         self.lstm_head = LSTMHead(in_features=config.hidden_size, hidden_dim=config.hidden_size//2, n_layers=1)
         self.classification_head = nn.Linear(config.hidden_size, self.num_labels, bias=False)
