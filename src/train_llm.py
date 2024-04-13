@@ -277,7 +277,7 @@ def main(cfg: DictConfig):
             token_map_idx += 1
 
 
-        tokenized = tokenizer("".join(text), return_offsets_mapping=True, truncation = True, padding = False, max_length=max_length, return_overflowing_tokens=cfg.return_overflowing_tokens, stride = cfg.stride)
+        tokenized = tokenizer("".join(text), return_offsets_mapping=True, truncation = True, padding = False, max_length=max_length, return_overflowing_tokens=cfg.return_overflowing_tokens, add_special_tokens = True, stride = cfg.stride)
 
         if not cfg.return_overflowing_tokens:
             for k, v in tokenized.items():
