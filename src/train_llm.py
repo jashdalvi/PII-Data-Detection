@@ -531,7 +531,7 @@ def main(cfg: DictConfig):
         # data.extend(train_full_data)
         # data.extend(test_full_data)
 
-        tokenizer = AutoTokenizer.from_pretrained(cfg.model_name)
+        tokenizer = AutoTokenizer.from_pretrained(cfg.model_name, padding_side = "left")
         # Add unk token as tokenizer.pad_token
         tokenizer.pad_token = tokenizer.unk_token
 
@@ -642,24 +642,25 @@ def main(cfg: DictConfig):
             collate_fn=valid_collator
         )
 
-        # bnb_config = BitsAndBytesConfig(
-        #     load_in_4bit=True,
-        #     bnb_4bit_quant_type="nf4",
-        #     bnb_4bit_use_double_quant=True,
-        #     bnb_4bit_compute_dtype=torch.float16
-        # )
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_compute_dtype=torch.bfloat16
+        )
 
-        base_model = LlamaForTokenClassification.from_pretrained(cfg.model_name, num_labels=len(LABELS), trust_remote_code=True)
+        base_model = MistralForTokenClassification.from_pretrained(cfg.model_name, num_labels=len(LABELS), quantization_config=bnb_config, trust_remote_code=True, torch_dtype=torch.bfloat16)
         base_model.config.pretraining_tp = 1
+        base_model = prepare_model_for_kbit_training(base_model)
         peft_config = LoraConfig(
-            r=8,
+            r=16,
             lora_alpha=32,
-            lora_dropout=0.1,
+            lora_dropout=0.05,
             bias="none",
             task_type=TaskType.TOKEN_CLS,
             inference_mode=False,
             target_modules=["q_proj","k_proj"],
-            modules_to_save=["classification_head", "lstm_head"],
+            modules_to_save=["classification_head"],
         )
 
         model = get_peft_model(base_model, peft_config)
