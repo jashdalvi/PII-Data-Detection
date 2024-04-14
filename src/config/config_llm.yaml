@@ -2,15 +2,15 @@ hydra:
   job:
     chdir: False
 
-batch_size: 1
-valid_batch_size: 1
+batch_size: 2
+valid_batch_size: 2
 epochs: 3
 eval_ratio: 0.5 # Ratio of the number of times you want to do validation every epoch
 num_workers: 4
 lr: 2e-5
 max_length: 1024
 stride: 0
-model_name: "h2oai/h2o-danube2-1.8b-base"
+model_name: "microsoft/phi-1_5"
 hidden_dropout_prob: 0.1
 layer_norm_eps: 1e-7
 gradient_accumulation_steps: 4
