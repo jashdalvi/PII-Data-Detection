@@ -32,6 +32,7 @@ from accelerate import Accelerator
 from modules import LSTMHead
 from functools import partial
 from sklearn.model_selection import train_test_split
+from accelerate import DistributedDataParallelKwargs
 transformers.logging.set_verbosity_error()
 warnings.filterwarnings("ignore")
 
@@ -714,7 +715,11 @@ def main(cfg: DictConfig):
 
     wandb.login(key = os.environ['WANDB_API_KEY']) # Enter your API key here
     # Create the main accelerator object
-    accelerator = Accelerator(mixed_precision=cfg.mixed_precision, gradient_accumulation_steps=int(cfg.gradient_accumulation_steps), log_with = "wandb")
+    if cfg.find_unused_params:
+        ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
+        accelerator = Accelerator(mixed_precision=cfg.mixed_precision, gradient_accumulation_steps=int(cfg.gradient_accumulation_steps), log_with = "wandb", kwargs_handlers=[ddp_kwargs])
+    else:
+        accelerator = Accelerator(mixed_precision=cfg.mixed_precision, gradient_accumulation_steps=int(cfg.gradient_accumulation_steps), log_with = "wandb")
 
     # Create the output directory if it doesn't exist
     if accelerator.is_main_process:
@@ -793,8 +798,8 @@ def main(cfg: DictConfig):
         # Commenting out the kaggle api dataset upload code
         subprocess.run(["kaggle", "datasets", "init", "-p", cfg.output_dir], check=True)
         kaggle_dataset_metadata = {
-            "title": f"pii-data-detection-{cfg.model_name.split(os.path.sep)[-1]}-cv-{cv:.5f}",
-            "id": f"jashdalvi99/pii-data-detection-{cfg.model_name.split(os.path.sep)[-1]}-cv-{cv:.5f}".replace(".", ""),
+            "title": f"pii-data-detection-{cfg.model_name.split(os.path.sep)[-1][:15]}-cv-{cv:.5f}",
+            "id": f"jashdalvi99/pii-data-detection-{cfg.model_name.split(os.path.sep)[-1][:15]}-cv-{cv:.5f}".replace(".", ""),
             "licenses": [
                 {
                 "name": "CC0-1.0"
