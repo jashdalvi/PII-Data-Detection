@@ -805,8 +805,8 @@ def main(cfg: DictConfig):
         # Commenting out the kaggle api dataset upload code
         subprocess.run(["kaggle", "datasets", "init", "-p", cfg.output_dir], check=True)
         kaggle_dataset_metadata = {
-            "title": f"pii-data-detection-{cfg.model_name.split(os.path.sep)[-1][:15]}-cv-{cv:.5f}",
-            "id": f"jashdalvi99/pii-data-detection-{cfg.model_name.split(os.path.sep)[-1][:15]}-cv-{cv:.5f}".replace(".", ""),
+            "title": f"pii-data-detection-{cfg.model_name.split(os.path.sep)[-1][:16]}-cv-{cv:.5f}",
+            "id": f"jashdalvi99/pii-data-detection-{cfg.model_name.split(os.path.sep)[-1][:16]}-cv-{cv:.5f}".replace(".", ""),
             "licenses": [
                 {
                 "name": "CC0-1.0"
