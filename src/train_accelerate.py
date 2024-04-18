@@ -153,7 +153,7 @@ def main(cfg: DictConfig):
         else:
             preds = [softmax(p[:len(offsets)]) for p, offsets in zip(preds, ds["offset_mapping"])]
 
-        preds = Parallel(n_jobs=-1)(delayed(postprocess_labels)(p,  token_idxs_mapping if cfg.merge_token_preds else None) for p, token_idxs_mapping in zip(preds,ds["token_idxs_mapping"]))
+        preds = Parallel(n_jobs=-1)(delayed(get_merged_preds)(p,  token_idxs_mapping if cfg.merge_token_preds else None) for p, token_idxs_mapping in zip(preds,ds["token_idxs_mapping"]))
 
         return preds
 
