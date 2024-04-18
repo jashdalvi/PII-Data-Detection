@@ -23,4 +23,5 @@ scikit-learn
 datasets
 accelerate
 bitsandbytes
+joblib
 git+https://github.com/huggingface/peft

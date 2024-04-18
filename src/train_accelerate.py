@@ -32,6 +32,7 @@ from accelerate import Accelerator
 from modules import LSTMHead
 from functools import partial
 from sklearn.model_selection import train_test_split
+from joblib import Parallel, delayed
 from accelerate import DistributedDataParallelKwargs
 transformers.logging.set_verbosity_error()
 warnings.filterwarnings("ignore")
@@ -152,7 +153,7 @@ def main(cfg: DictConfig):
         else:
             preds = [softmax(p[:len(offsets)]) for p, offsets in zip(preds, ds["offset_mapping"])]
 
-        preds = [get_merged_preds(p, token_idxs_mapping if cfg.merge_token_preds else None) for p, token_idxs_mapping in zip(preds, ds["token_idxs_mapping"])]
+        preds = Parallel(n_jobs=-1)(delayed(postprocess_labels)(p,  token_idxs_mapping if cfg.merge_token_preds else None) for p, token_idxs_mapping in zip(preds,ds["token_idxs_mapping"]))
 
         return preds
 
@@ -467,6 +468,13 @@ def main(cfg: DictConfig):
         return all_preds, losses.avg
     
 
+    def compute_metrics_parallel(preds, valid_ds, threshold, valid_reference_df):
+        pred_df, _ = generate_pred_df(preds, valid_ds, threshold=threshold)
+        eval_dict = compute_metrics(pred_df, valid_reference_df)
+        score = eval_dict['ents_f5']
+        return score, pred_df
+    
+
     ## TODO: do validate on every epoch
     def validate(model, train_loss, epoch, fold, accelerator, valid_loader, valid_ds, valid_reference_df):
         """
@@ -489,12 +497,11 @@ def main(cfg: DictConfig):
         preds = get_processed_preds(preds, valid_ds)
 
         accelerator.print("Validating for various thresholds...")
-        for threshold in thresholds_to_validate:
-            pred_df, _ = generate_pred_df(preds, valid_ds, threshold=threshold)
-            eval_dict = compute_metrics(pred_df, valid_reference_df)
-            threshold_f5.append(eval_dict['ents_f5'])
-            pred_dfs_f5.append(pred_df)
-            accelerator.print(f"Threshold: {threshold}, Validation f5 score: {eval_dict['ents_f5']}")
+        result = Parallel(n_jobs=-1)(delayed(compute_metrics_parallel)(preds, valid_ds, threshold, valid_reference_df) for threshold in thresholds_to_validate)
+        threshold_f5, pred_dfs_f5 = zip(*result)
+
+        for i, threshold in enumerate(thresholds_to_validate):
+            accelerator.print(f"Threshold: {threshold}, Validation f5 score: {threshold_f5[i]:.4f}")
         
         f5_score = threshold_f5[threshold_to_idx_mapping[float(cfg.threshold)]]
         pred_df = pred_dfs_f5[threshold_to_idx_mapping[float(cfg.threshold)]]
