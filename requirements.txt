@@ -22,6 +22,7 @@ beautifulsoup4
 scikit-learn
 datasets
 accelerate
-bitsandbytes
+git+https://github.com/TimDettmers/bitsandbytes.git
 joblib
 git+https://github.com/huggingface/peft
+billm

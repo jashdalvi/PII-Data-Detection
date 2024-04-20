@@ -33,9 +33,11 @@ from accelerate import Accelerator
 from modules import LSTMHead
 from functools import partial
 from sklearn.model_selection import train_test_split
-from models import PhiForTokenClassification, MistralForTokenClassification, LlamaForTokenClassification
+from models import PhiForTokenClassification, LlamaForTokenClassification
+from billm import MistralForTokenClassification
 from peft import (LoraConfig, TaskType, get_peft_model,
                   prepare_model_for_kbit_training)
+from joblib import Parallel, delayed
 transformers.logging.set_verbosity_error()
 warnings.filterwarnings("ignore")
 
@@ -430,6 +432,12 @@ def main(cfg: DictConfig):
 
         return all_preds, losses.avg
     
+    def compute_metrics_parallel(preds, valid_ds, threshold, valid_reference_df):
+        pred_df, _ = generate_pred_df(preds, valid_ds, threshold=threshold)
+        eval_dict = compute_metrics(pred_df, valid_reference_df)
+        score = eval_dict['ents_f5']
+        return score, pred_df
+    
 
     ## TODO: do validate on every epoch
     def validate(model, train_loss, epoch, fold, accelerator, valid_loader, valid_ds, valid_reference_df):
@@ -453,12 +461,11 @@ def main(cfg: DictConfig):
         preds = get_processed_preds(preds, valid_ds)
 
         accelerator.print("Validating for various thresholds...")
-        for threshold in thresholds_to_validate:
-            pred_df, _ = generate_pred_df(preds, valid_ds, threshold=threshold)
-            eval_dict = compute_metrics(pred_df, valid_reference_df)
-            threshold_f5.append(eval_dict['ents_f5'])
-            pred_dfs_f5.append(pred_df)
-            accelerator.print(f"Threshold: {threshold}, Validation f5 score: {eval_dict['ents_f5']}")
+        result = Parallel(n_jobs=-1)(delayed(compute_metrics_parallel)(preds, valid_ds, threshold, valid_reference_df) for threshold in thresholds_to_validate)
+        threshold_f5, pred_dfs_f5 = zip(*result)
+
+        for i, threshold in enumerate(thresholds_to_validate):
+            accelerator.print(f"Threshold: {threshold}, Validation f5 score: {threshold_f5[i]:.4f}")
         
         f5_score = threshold_f5[threshold_to_idx_mapping[float(cfg.threshold)]]
         pred_df = pred_dfs_f5[threshold_to_idx_mapping[float(cfg.threshold)]]
@@ -649,21 +656,21 @@ def main(cfg: DictConfig):
         #     bnb_4bit_compute_dtype=torch.bfloat16
         # )
 
-        base_model = PhiForTokenClassification.from_pretrained(cfg.model_name, num_labels=len(LABELS), trust_remote_code=True)
+        base_model = MistralForTokenClassification.from_pretrained(cfg.model_name, num_labels=len(LABELS), trust_remote_code=True, torch_dtype=torch.bfloat16)
         base_model.config.pretraining_tp = 1
         # base_model = prepare_model_for_kbit_training(base_model)
-        for name, param in base_model.named_parameters():
-            if "classification_head" in name or "lstm_head" in name:
-                accelerator.print(name, param.dtype)
+        # for name, param in base_model.named_parameters():
+        #     if "classification_head" in name or "lstm_head" in name:
+        #         accelerator.print(name, param.dtype)
         peft_config = LoraConfig(
             r=16,
             lora_alpha=32,
-            lora_dropout=0.05,
+            lora_dropout=0,
             bias="none",
             task_type=TaskType.TOKEN_CLS,
             inference_mode=False,
             target_modules=["q_proj","k_proj"],
-            modules_to_save=["classification_head", "lstm_head"],
+            # modules_to_save=["classification_head", "lstm_head"],
         )
 
         model = get_peft_model(base_model, peft_config)
@@ -717,7 +724,7 @@ def main(cfg: DictConfig):
 
     wandb.login(key = os.environ['WANDB_API_KEY']) # Enter your API key here
     # Create the main accelerator object
-    accelerator = Accelerator(gradient_accumulation_steps=int(cfg.gradient_accumulation_steps), log_with = "wandb")
+    accelerator = Accelerator(mixed_precision=cfg.mixed_precision, gradient_accumulation_steps=int(cfg.gradient_accumulation_steps), log_with = "wandb")
 
     # Create the output directory if it doesn't exist
     if accelerator.is_main_process:
@@ -796,8 +803,8 @@ def main(cfg: DictConfig):
         # Commenting out the kaggle api dataset upload code
         subprocess.run(["kaggle", "datasets", "init", "-p", cfg.output_dir], check=True)
         kaggle_dataset_metadata = {
-            "title": f"pii-data-detection-{cfg.model_name.split(os.path.sep)[-1]}-cv-{cv:.5f}",
-            "id": f"jashdalvi99/pii-data-detection-{cfg.model_name.split(os.path.sep)[-1]}-cv-{cv:.5f}".replace(".", ""),
+            "title": f"pii-data-detection-{cfg.model_name.split(os.path.sep)[-1][:15]}-cv-{cv:.5f}",
+            "id": f"jashdalvi99/pii-data-detection-{cfg.model_name.split(os.path.sep)[-1][:15]}-cv-{cv:.5f}".replace(".", ""),
             "licenses": [
                 {
                 "name": "CC0-1.0"
