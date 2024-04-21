@@ -1,4 +1,4 @@
-pip install -r requirements.txt
+pip install --upgrade --force-reinstall -r requirements.txt
 export $(grep -v '^#' .env | xargs)
 mkdir data/
 kaggle datasets download -d jashdalvi99/pii-dataset -p data/

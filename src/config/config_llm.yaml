@@ -49,4 +49,4 @@ merge_token_preds: False
 downsample_dataset: False
 downsample_ratio: 0.3
 pooling: "normal"
-mixed_precision: "fp16"
+mixed_precision: "bf16"

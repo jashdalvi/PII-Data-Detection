@@ -1,1 +1,1 @@
-accelerate launch --multi_gpu --mixed_precision=fp16 --num_processes=2 train_llm.py fold=2 upload_models=True
+accelerate launch --multi_gpu --mixed_precision=bf16 --num_processes=2 train_llm.py fold=2 upload_models=True
