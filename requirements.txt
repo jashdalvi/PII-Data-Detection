@@ -26,3 +26,4 @@ bitsandbytes
 joblib
 peft
 billm
+einops

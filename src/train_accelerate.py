@@ -320,7 +320,7 @@ def main(cfg: DictConfig):
             super(Model, self).__init__()
 
             self.model_name = cfg.model_name
-            self.config = AutoConfig.from_pretrained(self.model_name)
+            self.config = AutoConfig.from_pretrained(self.model_name, trust_remote_code = True)
 
             self.config.update({
                     "hidden_dropout_prob": cfg.hidden_dropout_prob,
@@ -329,7 +329,7 @@ def main(cfg: DictConfig):
                     "add_pooling_layer": False,
                     "num_labels": len(LABELS)
             })
-            self.transformer = AutoModel.from_pretrained(self.model_name, config=self.config)
+            self.transformer = AutoModel.from_pretrained(self.model_name, config=self.config, trust_remote_code = True)
             self.linear = nn.Linear(self.config.hidden_size, self.config.num_labels)
             self.dropout = nn.Dropout(cfg.hidden_dropout_prob)
             self.loss_fn = nn.CrossEntropyLoss()
@@ -721,6 +721,7 @@ def main(cfg: DictConfig):
         return best_score
 
     wandb.login(key = os.environ['WANDB_API_KEY']) # Enter your API key here
+    login(os.environ.get("HF_HUB_TOKEN")) # Enter your Hugging Face API key here
     # Create the main accelerator object
     if cfg.find_unused_params:
         ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
