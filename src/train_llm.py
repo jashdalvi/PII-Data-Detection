@@ -33,8 +33,7 @@ from accelerate import Accelerator
 from modules import LSTMHead
 from functools import partial
 from sklearn.model_selection import train_test_split
-from models import PhiForTokenClassification, LlamaForTokenClassification
-from billm import MistralForTokenClassification
+from models import PhiForTokenClassification, LlamaForTokenClassification, MistralForTokenClassification
 from peft import (LoraConfig, TaskType, get_peft_model,
                   prepare_model_for_kbit_training)
 from joblib import Parallel, delayed
@@ -663,13 +662,14 @@ def main(cfg: DictConfig):
         #     if "classification_head" in name or "lstm_head" in name:
         #         accelerator.print(name, param.dtype)
         peft_config = LoraConfig(
-            r=16,
+            r=8,
             lora_alpha=32,
             lora_dropout=0,
             bias="none",
             task_type=TaskType.TOKEN_CLS,
             inference_mode=False,
             target_modules=["q_proj","k_proj"],
+            modules_to_save=["classifier"]
             # modules_to_save=["classification_head", "lstm_head"],
         )
 

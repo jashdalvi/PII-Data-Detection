@@ -51,17 +51,17 @@ class MistralForTokenClassification(MistralPreTrainedModel):
         super().__init__(config)
         self.num_labels = config.num_labels
         self.model = MistralModel(config)
-        self.lstm_head = nn.LSTM(config.hidden_size,
-                            config.hidden_size//2,
-                            1,
-                            batch_first=True,
-                            bidirectional=True,
-                            dropout=0.1)
-        self.classification_head = nn.Linear(config.hidden_size, self.num_labels, bias=False)
-        self.loss_fn = nn.CrossEntropyLoss()
+        self.dropout = nn.Dropout(config.hidden_dropout)
+        self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
         # Initialize weights and apply final processing
         self.post_init()
+    
+    def get_input_embeddings(self):
+        return self.model.embed_tokens
+
+    def set_input_embeddings(self, value):
+        self.model.embed_tokens = value
 
     def forward(
         self,
@@ -92,11 +92,11 @@ class MistralForTokenClassification(MistralPreTrainedModel):
         )
         sequence_output = transformer_outputs[0]  # (bs, seq_len, dim)
 
-        sequence_output, (_, _) = self.lstm_head(sequence_output) # Apply LSTM for bidirectional context
-        logits = self.classification_head(sequence_output) # (bs, num_labels)
+        sequence_output = self.dropout(sequence_output)
+        logits = self.classifier(sequence_output)
 
-
-        loss = self.loss_fn(logits.view(-1, self.num_labels), labels.view(-1))
+        loss_fct = nn.CrossEntropyLoss()
+        loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
 
         return TokenClassifierOutput(
             loss=loss,
@@ -170,15 +170,8 @@ class LlamaForTokenClassification(LlamaPreTrainedModel):
         self.num_labels = config.num_labels
         self.model = LlamaModel(config)
 
-        self.lstm_head = nn.LSTM(config.hidden_size,
-                            config.hidden_size//2,
-                            1,
-                            batch_first=True,
-                            bidirectional=True,
-                            dropout=0.1)
-        self.classification_head = nn.Linear(config.hidden_size, self.num_labels, bias=False)
-
-        self.loss_fn = nn.CrossEntropyLoss()
+        self.dropout = nn.Dropout(config.hidden_dropout)
+        self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
         # Initialize weights and apply final processing
         self.post_init()
@@ -217,10 +210,11 @@ class LlamaForTokenClassification(LlamaPreTrainedModel):
             return_dict=return_dict,
         )
         sequence_output = transformer_outputs[0]  # (bs, seq_len, dim)
-        sequence_output, (_, _) = self.lstm_head(sequence_output) # Apply LSTM for bidirectional context
-        logits = self.classification_head(sequence_output) # (bs, num_labels)
+        sequence_output = self.dropout(sequence_output)
+        logits = self.classifier(sequence_output)
 
-        loss = self.loss_fn(logits.view(-1, self.num_labels), labels.view(-1))
+        loss_fct = nn.CrossEntropyLoss()
+        loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
 
         return TokenClassifierOutput(
             loss=loss,
