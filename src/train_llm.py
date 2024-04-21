@@ -539,7 +539,7 @@ def main(cfg: DictConfig):
 
         tokenizer = AutoTokenizer.from_pretrained(cfg.model_name, padding_side = "left")
         # Add unk token as tokenizer.pad_token
-        tokenizer.pad_token = tokenizer.unk_token
+        tokenizer.pad_token = tokenizer.eos_token
 
         if cfg.add_new_line_token:
             tokenizer.add_tokens(AddedToken("\n", normalized=False))
@@ -655,7 +655,7 @@ def main(cfg: DictConfig):
         #     bnb_4bit_compute_dtype=torch.bfloat16
         # )
 
-        base_model = MistralForTokenClassification.from_pretrained(cfg.model_name, num_labels=len(LABELS), trust_remote_code=True, torch_dtype=torch.bfloat16)
+        base_model = LlamaForTokenClassification.from_pretrained(cfg.model_name, num_labels=len(LABELS), trust_remote_code=True, torch_dtype=torch.float16)
         base_model.config.pretraining_tp = 1
         # base_model = prepare_model_for_kbit_training(base_model)
         # for name, param in base_model.named_parameters():
@@ -723,6 +723,7 @@ def main(cfg: DictConfig):
         return best_score
 
     wandb.login(key = os.environ['WANDB_API_KEY']) # Enter your API key here
+    login(os.environ.get("HF_HUB_TOKEN"))
     # Create the main accelerator object
     accelerator = Accelerator(mixed_precision=cfg.mixed_precision, gradient_accumulation_steps=int(cfg.gradient_accumulation_steps), log_with = "wandb")
 

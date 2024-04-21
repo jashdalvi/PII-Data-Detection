@@ -1,7 +1,7 @@
 torch
 torchvision
 torchaudio
-git+https://github.com/huggingface/transformers
+transformers
 kaggle
 wandb
 tqdm
@@ -22,7 +22,7 @@ beautifulsoup4
 scikit-learn
 datasets
 accelerate
-git+https://github.com/TimDettmers/bitsandbytes.git
+bitsandbytes
 joblib
-git+https://github.com/huggingface/peft
+peft
 billm

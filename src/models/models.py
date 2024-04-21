@@ -51,7 +51,7 @@ class MistralForTokenClassification(MistralPreTrainedModel):
         super().__init__(config)
         self.num_labels = config.num_labels
         self.model = MistralModel(config)
-        self.dropout = nn.Dropout(config.hidden_dropout)
+        # self.dropout = nn.Dropout(config.hidden_dropout)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
         # Initialize weights and apply final processing
@@ -92,7 +92,7 @@ class MistralForTokenClassification(MistralPreTrainedModel):
         )
         sequence_output = transformer_outputs[0]  # (bs, seq_len, dim)
 
-        sequence_output = self.dropout(sequence_output)
+        # sequence_output = self.dropout(sequence_output)
         logits = self.classifier(sequence_output)
 
         loss_fct = nn.CrossEntropyLoss()
@@ -170,7 +170,7 @@ class LlamaForTokenClassification(LlamaPreTrainedModel):
         self.num_labels = config.num_labels
         self.model = LlamaModel(config)
 
-        self.dropout = nn.Dropout(config.hidden_dropout)
+        # self.dropout = nn.Dropout(config.hidden_dropout)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
         # Initialize weights and apply final processing
@@ -210,7 +210,7 @@ class LlamaForTokenClassification(LlamaPreTrainedModel):
             return_dict=return_dict,
         )
         sequence_output = transformer_outputs[0]  # (bs, seq_len, dim)
-        sequence_output = self.dropout(sequence_output)
+        # sequence_output = self.dropout(sequence_output)
         logits = self.classifier(sequence_output)
 
         loss_fct = nn.CrossEntropyLoss()
