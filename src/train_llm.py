@@ -788,44 +788,6 @@ def main(cfg: DictConfig):
         
         accelerator.print(f"CV SCORE: {cv:.4f}")
 
-        login(os.environ.get("HF_HUB_TOKEN"))
-        api = HfApi()
-        cfg.repo_id = f"jashdalvi/pii-data-detection-{cfg.model_name.split(os.path.sep)[-1]}-cv-{cv:.5f}"
-        # Creating a model repository in baseplate
-        create_repo(cfg.repo_id, private= True, exist_ok=True)
-        # Pushing the model to the hub
-        api.upload_folder(
-            folder_path = cfg.output_dir,
-            path_in_repo = "/",
-            repo_id = cfg.repo_id,
-            repo_type = "model"
-        )
-
-        # Commenting out the kaggle api dataset upload code
-        subprocess.run(["kaggle", "datasets", "init", "-p", cfg.output_dir], check=True)
-        kaggle_dataset_metadata = {
-            "title": f"pii-data-detection-{cfg.model_name.split(os.path.sep)[-1][:15]}-cv-{cv:.5f}",
-            "id": f"jashdalvi99/pii-data-detection-{cfg.model_name.split(os.path.sep)[-1][:15]}-cv-{cv:.5f}".replace(".", ""),
-            "licenses": [
-                {
-                "name": "CC0-1.0"
-                }
-            ]
-        }
-        # Overwriting the dataset metadata file
-        with open(os.path.join(cfg.output_dir, "dataset-metadata.json"), "w") as f:
-            json.dump(kaggle_dataset_metadata, f)
-        # Uploading the dataset to kaggle
-        subprocess.run(["kaggle", "datasets", "create", "-p", cfg.output_dir], check=True)
-
-        # Remove the CV score file
-        subprocess.run(["rm", "../data/outputs.json"], check=True)
-
-        # Deleting the output directory to save some space
-        shutil.rmtree(cfg.output_dir)
-        # Remove the local wandb dir to save some space
-        shutil.rmtree("wandb")
-
 
 if __name__ == "__main__":
     main()
