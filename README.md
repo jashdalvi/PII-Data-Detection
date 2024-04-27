@@ -23,7 +23,7 @@ accelerate launch --mixed_precision=fp16 train_accelerate.py fold=0
 ```
 
 For training on a Multi-GPU with mixed precision
-Note: Make sure to change the num of processes according to the number of GPUs you have. The following command is for 2 GPUs.
+<br>Note: Make sure to change the num of processes according to the number of GPUs you have. The following command is for 2 GPUs.
 
 ```python
 accelerate launch --multi_gpu --mixed_precision=fp16 --num_processes=2 train_accelerate.py fold=0
